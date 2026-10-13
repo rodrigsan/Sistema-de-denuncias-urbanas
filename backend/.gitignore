@@ -1,0 +1,27 @@
+# Dependencias
+node_modules/
+
+# Variables de entorno con secretos
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Cobertura y temporales
+coverage/
+.nyc_output/
+dist/
+tmp/
+
+# Almacenamiento local de evidencias (nunca se publica ni se versiona)
+storage/
+
+# Sistema operativo / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

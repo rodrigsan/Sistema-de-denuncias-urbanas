@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+/* Paleta institucional y semantica de estados (tokens de Tailwind v4).
+   Institucional: azul marino (#0F172A / #1E3A8A), fondo neutro (#F8FAFC),
+   texto de alto contraste (#1E293B). Estados: verde, naranja, ambar y rojo. */
+@theme {
+  --color-marine-950: #0f172a;
+  --color-marine-800: #172554;
+  --color-marine-700: #1e3a8a;
+  --color-marine-600: #1d4ed8;
+  --color-surface: #f8fafc;
+  --color-ink: #1e293b;
+  --color-ink-soft: #475569;
+
+  --color-state-success: #16a34a;
+  --color-state-warning: #ea580c;
+  --color-state-caution: #d97706;
+  --color-state-danger: #dc2626;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-surface text-ink font-sans antialiased;
+  }
+
+  /* Los enlaces de anclaje no quedan ocultos tras el Navbar fijo. */
+  section[id] {
+    scroll-margin-top: 5.5rem;
+  }
+}
