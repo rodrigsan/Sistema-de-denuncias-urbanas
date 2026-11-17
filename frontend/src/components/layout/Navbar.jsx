@@ -29,6 +29,46 @@ export function Navbar({ onOpenDrawer }) {
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4">
+        <div className="flex items-center gap-2">
+          {!loading && user && (
+            <button
+              type="button"
+              onClick={onOpenDrawer}
+              className="inline-flex items-center justify-center rounded-lg p-2 text-ink transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-marine-700"
+              aria-label="Abrir menú lateral"
+            >
+              <Menu size={22} aria-hidden="true" />
+            </button>
+          )}
+          {loading ? (
+            <span
+              className="h-9 w-28 animate-pulse rounded-lg bg-slate-200"
+              aria-hidden="true"
+            />
+          ) : user ? (
+            <>
+              <span
+                className="hidden max-w-32 truncate items-center gap-2 rounded-full bg-marine-950 py-1.5 pl-1.5 pr-4 text-xs font-semibold text-white sm:flex"
+                title={alias ?? 'Ciudadano'}
+              >
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-marine-700 uppercase">
+                  {(alias ?? '?').slice(0, 1)}
+                </span>
+                {alias ?? 'Ciudadano'}
+              </span>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void loginWithGoogle()}
+              className="inline-flex items-center gap-2 rounded-lg bg-marine-700 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-marine-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-marine-950"
+            >
+              <GoogleIcon size={16} />
+              <span>Continuar con Google</span>
+            </button>
+          )}
+        </div>
+
         <Link
           to="/"
           className="flex items-center gap-2.5"
@@ -52,44 +92,6 @@ export function Navbar({ onOpenDrawer }) {
             </a>
           ))}
         </nav>
-
-        <div className="flex items-center gap-2">
-          {loading ? (
-            <span
-              className="h-9 w-28 animate-pulse rounded-lg bg-slate-200"
-              aria-hidden="true"
-            />
-          ) : user ? (
-            <>
-              <span
-                className="hidden max-w-32 truncate items-center gap-2 rounded-full bg-marine-950 py-1.5 pl-1.5 pr-4 text-xs font-semibold text-white sm:flex"
-                title={alias ?? 'Ciudadano'}
-              >
-                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-marine-700 uppercase">
-                  {(alias ?? '?').slice(0, 1)}
-                </span>
-                {alias ?? 'Ciudadano'}
-              </span>
-              <button
-                type="button"
-                onClick={onOpenDrawer}
-                className="inline-flex items-center justify-center rounded-lg p-2 text-ink transition-colors hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-marine-700"
-                aria-label="Abrir menú lateral"
-              >
-                <Menu size={22} aria-hidden="true" />
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => void loginWithGoogle()}
-              className="inline-flex items-center gap-2 rounded-lg bg-marine-700 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-marine-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-marine-950"
-            >
-              <GoogleIcon size={16} />
-              <span>Continuar con Google</span>
-            </button>
-          )}
-        </div>
       </div>
     </header>
   )

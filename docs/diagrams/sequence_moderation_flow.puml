@@ -1,0 +1,181 @@
+@startuml sequence_moderation_flow
+!theme plain
+title Diagrama de Secuencia — Flujo Administrativo\nModeración → Duplicados → Asignación → Atención → Verificación → Resolución
+
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 11
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 200
+skinparam BoxPadding 10
+
+box "Navegador (Panel Administrativo)" #E8F0FE
+  participant "Moderador" as moderator
+  participant "Enlace Técnico" as liaison
+end box
+
+box "Backend API (Node.js/Express)" #FFF8E1
+  participant "ModerationService" as mod_svc
+  participant "TechnicalService" as tech_svc
+  participant "ComplaintsRepository\n(withComplaintLock)" as complaints_repo
+  participant "ModerationRepository" as mod_repo
+  participant "MediaRepository" as media_repo
+end box
+
+database "PostgreSQL + PostGIS" as pg
+participant "Almacenamiento\nPrivado" as storage
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE A: BANDEJA DEL MODERADOR
+' ═══════════════════════════════════════════════════════════════════
+== 1. Bandeja de Moderación (GET /moderation/complaints) ==
+
+moderator -> mod_svc : GET /moderation/complaints\n?page=1&limit=10\n(RBAC: requireRole('MODERATOR'))
+mod_svc -> mod_repo : findPendingReviewComplaints\n(ORDER BY formalized_at ASC,\n deleted_at IS NULL)
+mod_svc -> mod_repo : findSuggestedUnitsForSubcategories\n(assignment_rules activas\nORDER BY priority)
+mod_repo -> pg : SELECT ... JOIN\n(status='PENDING_REVIEW')
+pg --> mod_repo : Denuncias + alias (LEFT JOIN\ncitizen_profiles, sin PII)
+mod_svc --> moderator : { complaints: [...],\n  pagination: { total } }\n(cada una con suggestedUnits\ny citizenAlias)
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE B: DETECCIÓN DE DUPLICADOS (PostGIS)
+' ═══════════════════════════════════════════════════════════════════
+== 2. Análisis de Duplicados (ST_DWithin) ==
+
+moderator -> mod_svc : GET /moderation/complaints/:id/duplicate-candidates
+mod_svc -> mod_repo : findDuplicateCandidates\n(same subcategory +\n  ST_DWithin(location, ref, 100m),\n  status <> 'REJECTED')
+mod_repo -> pg : SELECT ... ST_DWithin(...)\\n  ORDER BY ST_Distance(...)
+pg --> mod_repo : Candidatas con distanceMeters
+mod_svc --> moderator : { candidates: [{ id, title,\n  publicCode, citizenAlias, distanceMeters }] }
+
+opt Proponer duplicado
+  moderator -> mod_svc : POST /:id/duplicate-proposals\n{ candidateComplaintId }
+  mod_svc -> mod_repo : INSERT duplicate_proposals\n(status='PENDING')
+  mod_repo -> pg : INSERT (par único LEAST/GREATEST)
+  mod_svc --> moderator : 201 { id, status: 'PENDING' }
+end
+
+opt Resolver propuesta
+  moderator -> mod_svc : POST /duplicate-proposals/:id/resolve\n{ decision: 'CONFIRMED_GROUP', title: '...' }
+  mod_svc -> mod_repo : INSERT complaint_groups\n+ complaint_group_members\n+ UPDATE proposal → 'CONFIRMED_GROUP'
+  mod_svc --> moderator : 200 { groupId, status }
+else No es duplicado
+  moderator -> mod_svc : POST /duplicate-proposals/:id/resolve\n{ decision: 'NOT_DUPLICATE' }
+  mod_svc --> moderator : 200
+end
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE C: APROBACIÓN ATÓMICA
+' ═══════════════════════════════════════════════════════════════════
+== 3. Aprobación Atómica y Asignación (transacción FOR UPDATE) ==
+
+moderator -> mod_svc : POST /moderation/complaints/:id/approve\n{ municipalUnitId: OBRAS_PUBLICAS }
+
+mod_svc -> complaints_repo : withComplaintLock(id)
+complaints_repo -> pg : SELECT ... FOR UPDATE OF c\n(status='PENDING_REVIEW')
+
+mod_svc -> mod_repo : INSERT moderation_reviews\n(decision='APPROVED',\n  selected_unit_id, moderator_user_id)
+mod_svc -> mod_repo : INSERT complaint_assignments\n(municipal_unit_id,\n  assigned_by_user_id)
+mod_svc -> complaints_repo : setStatusAndHistory()\nUPDATE status='ASSIGNED' +\nINSERT complaint_status_history\n('MODERATION_APPROVED')
+complaints_repo -> pg : UPDATE + INSERT\n(misma transacción)
+
+mod_svc --> moderator : 200 { status: 'ASSIGNED',\n  assignedUnit: OBRAS_PUBLICAS }
+
+note right of mod_svc
+  Garantías atómicas:
+  - CHECK moderation_reviews: APPROVED exige
+    unidad y niega motivo
+  - UNIQUE idx: 1 asignación activa/denuncia
+  - Guarda status='PENDING_REVIEW' bajo
+    FOR UPDATE → imposible doble aprobación
+end note
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE C': RECHAZO
+' ═══════════════════════════════════════════════════════════════════
+opt Rechazo con motivo obligatorio
+  moderator -> mod_svc : POST /:id/reject\n{ rejectionReason: "..." }
+  mod_svc -> mod_repo : INSERT moderation_reviews\n(decision='REJECTED',\n  rejection_reason)
+  mod_svc -> complaints_repo : UPDATE status='REJECTED' +\n  INSERT history ('MODERATION_REJECTED')
+  mod_svc --> moderator : 200 { status: 'REJECTED' }
+end
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE D: ATENCIÓN DEL ENLACE TÉCNICO
+' ═══════════════════════════════════════════════════════════════════
+== 4. Atención del Enlace Técnico (ASSIGNED → IN_PROGRESS) ==
+
+liaison -> tech_svc : GET /technical/complaints\n(RBAC: requireRole('TECHNICAL_LIAISON')\n+ filtrado por admin_unit_memberships)
+tech_svc -> pg : SELECT ... JOIN complaint_assignments\nWHERE ended_at IS NULL AND\n  municipal_unit_id IN (sus unidades)
+pg --> tech_svc : Denuncias asignadas
+tech_svc --> liaison : { complaints: [...],\n  latestSolution: null|{...} }
+
+liaison -> tech_svc : POST /technical/complaints/:id/start-process
+tech_svc -> complaints_repo : withComplaintLock(id)
+tech_svc -> complaints_repo : setStatusAndHistory()\nASSIGNED → IN_PROGRESS\n('TECHNICAL_WORK_STARTED')
+complaints_repo -> pg : UPDATE + INSERT history
+tech_svc --> liaison : 200 { status: 'IN_PROGRESS' }
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE E: REGISTRO DE SOLUCIÓN
+' ═══════════════════════════════════════════════════════════════════
+== 5. Registro de Solución (IN_PROGRESS → SOLUTION_SUBMITTED) ==
+
+liaison -> tech_svc : POST /technical/complaints/:id/submit-solution\n{ description: "Se repavimentó..." }
+tech_svc -> complaints_repo : withComplaintLock(id)
+tech_svc -> pg : INSERT complaint_solutions\n(status='SUBMITTED',\n  submitted_by_user_id)
+tech_svc -> complaints_repo : setStatusAndHistory()\nIN_PROGRESS → SOLUTION_SUBMITTED\n('SOLUTION_SUBMITTED_BY_TECHNICAL')
+tech_svc --> liaison : 201 { solutionId, status: 'SUBMITTED' }
+
+opt Evidencia de solución
+  liaison -> tech_svc : POST /technical/solutions/:sid/evidence\n(multipart: foto de obra)
+  tech_svc -> media_repo : INSERT media_assets\n(purpose='SOLUTION_EVIDENCE',\n  solution_id=sid, complaint_id=NULL)
+  tech_svc -> storage : Mueve archivo a\n  storage/solutions/:sid/
+  tech_svc --> liaison : 201 { processingStatus: 'PENDING' }
+end
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE F: VERIFICACIÓN DEL MODERADOR
+' ═══════════════════════════════════════════════════════════════════
+== 6. Verificación de la Solución (SOLUTION_SUBMITTED → RESOLVED|IN_PROGRESS) ==
+
+alt Aprobar solución
+  moderator -> mod_svc : POST /moderation/solutions/:id/verify\n{ decision: 'APPROVE' }
+  mod_svc -> complaints_repo : withComplaintLock(complaint_id)
+  mod_svc -> mod_repo : UPDATE complaint_solutions\nSET status='APPROVED',\n  reviewed_by, reviewed_at
+  mod_svc -> complaints_repo : setStatusAndHistory()\nSOLUTION_SUBMITTED → RESOLVED\n+ resolved_at = now()\n('SOLUTION_VERIFIED_APPROVED')
+  mod_svc --> moderator : 200 { complaintStatus: 'RESOLVED' }
+  
+  moderator --> liaison : (visita /tecnico → ya no aparece\nen bandeja activa)
+  
+else Devolver solución (con comentario)
+  moderator -> mod_svc : POST /solutions/:id/verify\n{ decision: 'RETURN',\n  reviewComment: "Falta..." }
+  mod_svc -> mod_repo : UPDATE complaint_solutions\nSET status='RETURNED',\n  review_comment
+  mod_svc -> complaints_repo : setStatusAndHistory()\nSOLUTION_SUBMITTED → IN_PROGRESS\n('SOLUTION_RETURNED')
+  mod_svc --> moderator : 200 { complaintStatus: 'IN_PROGRESS' }
+  
+  liaison -> tech_svc : GET /technical/complaints\n(ve latestSolution con\n  reviewComment y estado RETURNED)
+  liaison -> tech_svc : (reintenta:\n  nueva solución desde IN_PROGRESS)
+end
+
+note over moderator, pg
+  Flujo completo: PENDING_REVIEW → ASSIGNED → IN_PROGRESS
+  → SOLUTION_SUBMITTED → RESOLVED (o RETURNED → IN_PROGRESS → nueva solución).
+  
+  La asignación NO se cierra al resolver (trazabilidad);
+  los listados filtran por estado activo.
+end note
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE G: SANCIONES (opcional, en cualquier momento)
+' ═══════════════════════════════════════════════════════════════════
+opt Sanción de infracción (168 h)
+  moderator -> mod_svc : POST /moderation/violations\n{ complaintId, description: "Fraude..." }
+  mod_svc -> complaints_repo : withComplaintLock\n(identifica al autor)
+  mod_svc -> mod_repo : INSERT violations\n+ INSERT suspensions\n  (started_at=now(),\n  ends_at=now()+168h)
+  mod_svc -> pg : UPDATE users\n  SET status='SUSPENDED'
+  mod_svc --> moderator : 201 { violationId,\n  suspension: { endsAt } }
+  
+  moderator --> liaison : (el ciudadano suspendido\nve 403 en escrituras,\n200 en lecturas)
+end
+
+@enduml

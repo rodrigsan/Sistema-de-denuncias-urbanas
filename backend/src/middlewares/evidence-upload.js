@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { AppError } from '../utils/errors.js';
+import { resolveStoragePath } from '../utils/storage-path.js';
 
 /**
  * Middleware de subida de evidencias (multipart/form-data, campo "file").
@@ -183,7 +184,7 @@ export function createEvidenceUpload({ config }) {
           new AppError(
             422,
             'EVIDENCE_SIGNATURE_MISMATCH',
-            'El contenido del archivo no coincide con el tipo declarado.'
+            'Enviar el archivo en los formatos admitidos.'
           )
         );
       }
@@ -224,7 +225,8 @@ export function createEvidenceUpload({ config }) {
         declaredDurationSeconds,
         tempPath: persistedTempPath,
         async persistTo(storageKey) {
-          const destination = path.join(storageDirectory, storageKey);
+          // Anti-path-traversal: la ruta resultante debe quedar dentro de storageDirectory.
+          const destination = resolveStoragePath(storageDirectory, storageKey);
           await fsp.mkdir(path.dirname(destination), { recursive: true });
           await fsp.rename(persistedTempPath, destination);
         },

@@ -1,0 +1,446 @@
+@startuml erd_database
+!theme plain
+title Diagrama Entidad-Relación — Esquema PostgreSQL\nPlataforma de Denuncias Ciudadanas (001_initial_schema.sql)
+
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 10
+skinparam linetype ortho
+skinparam nodesep 40
+skinparam ranksep 60
+
+' ═══════════════════════════════════════════════════════════════════
+' ENTIDAD: users (raíz de identidad)
+' ═══════════════════════════════════════════════════════════════════
+entity "users" as users {
+  * **id** : UUID <<PK, gen_random_uuid()>>
+  --
+  * user_type : VARCHAR(20) <<CHECK: CITIZEN|ADMIN>>
+  * status : VARCHAR(20) <<CHECK: ACTIVE|SUSPENDED|DISABLED>>
+  * created_at : TIMESTAMPTZ
+  * updated_at : TIMESTAMPTZ <<trigger>>
+}
+
+entity "auth_identities" as auth_identities {
+  * **id** : UUID <<PK>>
+  --
+  * user_id : UUID <<FK, RESTRICT>>
+  * provider : VARCHAR(30) <<default 'google'>>
+  * provider_subject : VARCHAR(255)
+  * email_private : VARCHAR(320)
+  email_verified_at : TIMESTAMPTZ
+  * created_at : TIMESTAMPTZ
+  --
+  <<UNIQUE (provider, provider_subject)>>
+}
+
+entity "citizen_profiles" as citizen_profiles {
+  * **user_id** : UUID <<PK, FK, RESTRICT>>
+  --
+  * alias : VARCHAR(60) <<NOT NULL, CHECK len>0>>
+  * administrative_code : VARCHAR(40) <<UNIQUE>>
+  * created_at : TIMESTAMPTZ
+}
+
+entity "admin_profiles" as admin_profiles {
+  * **user_id** : UUID <<PK, FK, RESTRICT>>
+  --
+  * display_name : VARCHAR(120)
+  created_by_user_id : UUID <<FK>>
+  * created_at : TIMESTAMPTZ
+}
+
+' ═══════════════════════════════════════════════════════════════════
+' ENTIDAD: roles y permisos
+' ═══════════════════════════════════════════════════════════════════
+entity "roles" as roles {
+  * **id** : SMALLSERIAL <<PK>>
+  --
+  * code : VARCHAR(40) <<UNIQUE>>
+  * name : VARCHAR(100)
+  description : TEXT
+}
+
+entity "user_roles" as user_roles {
+  * **id** : UUID <<PK>>
+  --
+  * user_id : UUID <<FK, RESTRICT>>
+  * role_id : SMALLINT <<FK, RESTRICT>>
+  assigned_by_user_id : UUID <<FK>>
+  * assigned_at : TIMESTAMPTZ
+  revoked_at : TIMESTAMPTZ
+  --
+  <<UNIQUE (user_id, role_id) WHERE revoked_at IS NULL>>
+}
+
+' ═══════════════════════════════════════════════════════════════════
+' ENTIDAD: unidades municipales y membresías
+' ═══════════════════════════════════════════════════════════════════
+entity "municipal_units" as municipal_units {
+  * **id** : UUID <<PK>>
+  --
+  * code : VARCHAR(60) <<UNIQUE>>
+  * name : VARCHAR(180) <<UNIQUE>>
+  description : TEXT
+  * active : BOOLEAN <<default TRUE>>
+  * created_at : TIMESTAMPTZ
+}
+
+entity "admin_unit_memberships" as admin_unit_memberships {
+  * **id** : UUID <<PK>>
+  --
+  * user_id : UUID <<FK, RESTRICT>>
+  * municipal_unit_id : UUID <<FK, RESTRICT>>
+  * active_from : TIMESTAMPTZ <<default now()>>
+  active_until : TIMESTAMPTZ
+  --
+  <<CHECK: active_until > active_from>>
+}
+
+' ═══════════════════════════════════════════════════════════════════
+' ENTIDAD: catálogos
+' ═══════════════════════════════════════════════════════════════════
+entity "categories" as categories {
+  * **id** : UUID <<PK>>
+  --
+  * code : VARCHAR(60) <<UNIQUE>>
+  * name : VARCHAR(160) <<UNIQUE>>
+  description : TEXT
+  * active : BOOLEAN <<default TRUE>>
+  * sort_order : INTEGER <<default 0>>
+}
+
+entity "subcategories" as subcategories {
+  * **id** : UUID <<PK>>
+  --
+  * category_id : UUID <<FK, RESTRICT>>
+  * code : VARCHAR(80) <<UNIQUE>>
+  * name : VARCHAR(160)
+  description : TEXT
+  * active : BOOLEAN <<default TRUE>>
+  * sort_order : INTEGER
+  --
+  <<UNIQUE (category_id, name)>>
+  <<UNIQUE (id, category_id)>>
+}
+
+entity "assignment_rules" as assignment_rules {
+  * **id** : UUID <<PK>>
+  --
+  * category_id : UUID <<FK, RESTRICT>>
+  * subcategory_id : UUID <<FK composite>>
+  * municipal_unit_id : UUID <<FK, RESTRICT>>
+  * priority : INTEGER <<default 100>>
+  * active : BOOLEAN <<default TRUE>>
+  notes : TEXT
+  * created_at : TIMESTAMPTZ
+  --
+  <<UNIQUE (subcategory_id, municipal_unit_id)>>
+}
+
+' ═══════════════════════════════════════════════════════════════════
+' ENTIDAD: denuncias (núcleo del dominio)
+' ═══════════════════════════════════════════════════════════════════
+entity "complaints" as complaints {
+  * **id** : UUID <<PK>>
+  --
+  * public_code : VARCHAR(24) <<UNIQUE, 'DEN-XXXXXXXX'>>
+  * citizen_user_id : UUID <<FK, RESTRICT>>
+  * title : VARCHAR(180) <<CHECK len>0>>
+  * description : TEXT <<CHECK len>0>>
+  * category_id : UUID <<FK, RESTRICT>>
+  * subcategory_id : UUID <<FK composite>>
+  * location : GEOGRAPHY(POINT, 4326) <<PostGIS>>
+  * plus_code : VARCHAR(32)
+  * plus_code_source : VARCHAR(20) <<CHECK: MANUAL|AUTOMATIC>>
+  location_verified_at : TIMESTAMPTZ
+  location_verification_method : VARCHAR(30) <<CHECK: MATCH|CORRECTED|SERVER_RECALCULATED>>
+  * status : VARCHAR(30) <<CHECK: GRACE_PERIOD|PENDING_REVIEW|REJECTED|ASSIGNED|IN_PROGRESS|SOLUTION_SUBMITTED|RESOLVED>>
+  * grace_remaining_seconds : INTEGER <<CHECK 0..180>>
+  grace_running_since : TIMESTAMPTZ
+  * created_at : TIMESTAMPTZ
+  formalized_at : TIMESTAMPTZ
+  resolved_at : TIMESTAMPTZ
+  deleted_at : TIMESTAMPTZ
+  deletion_reason : VARCHAR(100)
+  * updated_at : TIMESTAMPTZ <<trigger>>
+  --
+  <<CHECK: status='GRACE_PERIOD' OR formalized_at IS NOT NULL>>
+}
+
+' ═══════════════════════════════════════════════════════════════════
+' ENTIDADES: flujo de gracia
+' ═══════════════════════════════════════════════════════════════════
+entity "complaint_grace_sessions" as grace_sessions {
+  * **id** : UUID <<PK>>
+  --
+  * complaint_id : UUID <<FK, RESTRICT>>
+  * started_at : TIMESTAMPTZ <<default now()>>
+  ended_at : TIMESTAMPTZ
+  end_reason : VARCHAR(30) <<CHECK: SAVED|CANCELLED|TIMEOUT|FORMALIZED>>
+  --
+  <<UNIQUE (complaint_id) WHERE ended_at IS NULL>>
+}
+
+entity "citizen_submission_limits" as submission_limits {
+  * **citizen_user_id** : UUID <<PK, FK, RESTRICT>>
+  --
+  next_allowed_at : TIMESTAMPTZ
+  last_formalized_complaint_id : UUID <<FK, RESTRICT>>
+  * updated_at : TIMESTAMPTZ <<trigger>>
+}
+
+entity "complaint_status_history" as status_history {
+  * **id** : UUID <<PK>>
+  --
+  * complaint_id : UUID <<FK, RESTRICT>>
+  previous_status : VARCHAR(30)
+  * new_status : VARCHAR(30)
+  changed_by_user_id : UUID <<FK, nullable = sistema>>
+  reason : TEXT
+  * created_at : TIMESTAMPTZ
+}
+
+' ═══════════════════════════════════════════════════════════════════
+' ENTIDADES: soluciones y evidencias
+' ═══════════════════════════════════════════════════════════════════
+entity "complaint_solutions" as complaint_solutions {
+  * **id** : UUID <<PK>>
+  --
+  * complaint_id : UUID <<FK, RESTRICT>>
+  * submitted_by_user_id : UUID <<FK, RESTRICT>>
+  * description : TEXT <<CHECK len>0>>
+  * status : VARCHAR(25) <<CHECK: SUBMITTED|APPROVED|RETURNED>>
+  * submitted_at : TIMESTAMPTZ <<default now()>>
+  reviewed_by_user_id : UUID <<FK>>
+  reviewed_at : TIMESTAMPTZ
+  review_comment : TEXT
+  --
+  <<CHECK: (reviewed_at NULL AND reviewed_by NULL) OR (both NOT NULL)>>
+}
+
+entity "media_assets" as media_assets {
+  * **id** : UUID <<PK>>
+  --
+  complaint_id : UUID <<FK, nullable>>
+  solution_id : UUID <<FK, nullable>>
+  * media_type : VARCHAR(20) <<CHECK: IMAGE|VIDEO>>
+  * purpose : VARCHAR(30) <<CHECK: COMPLAINT_EVIDENCE|SOLUTION_EVIDENCE>>
+  * storage_key : VARCHAR(700) <<UNIQUE>>
+  * mime_type : VARCHAR(100)
+  * size_bytes : BIGINT <<CHECK > 0>>
+  * processing_status : VARCHAR(25) <<CHECK: PENDING|PROCESSING|READY|FAILED|DELETED>>
+  * created_by_user_id : UUID <<FK, RESTRICT>>
+  * created_at : TIMESTAMPTZ
+  deleted_at : TIMESTAMPTZ
+  --
+  <<CHECK: XOR (complaint_id | solution_id) según purpose>>
+}
+
+entity "media_processing_jobs" as media_processing_jobs {
+  * **id** : UUID <<PK>>
+  --
+  * media_asset_id : UUID <<FK, RESTRICT>>
+  * status : VARCHAR(25) <<CHECK: PENDING|PROCESSING|SUCCEEDED|FAILED>>
+  * attempt_count : INTEGER <<CHECK >= 0>>
+  last_error_code : VARCHAR(100)
+  * created_at : TIMESTAMPTZ
+  finished_at : TIMESTAMPTZ
+}
+
+' ═══════════════════════════════════════════════════════════════════
+' ENTIDADES: moderación
+' ═══════════════════════════════════════════════════════════════════
+entity "moderation_reviews" as moderation_reviews {
+  * **id** : UUID <<PK>>
+  --
+  * complaint_id : UUID <<FK, RESTRICT>>
+  * moderator_user_id : UUID <<FK, RESTRICT>>
+  * decision : VARCHAR(20) <<CHECK: APPROVED|REJECTED>>
+  rejection_reason : TEXT
+  selected_unit_id : UUID <<FK>>
+  * created_at : TIMESTAMPTZ
+  --
+  <<CHECK: APPROVED → unidad y sin motivo;\\n         REJECTED → motivo y sin unidad>>
+}
+
+entity "complaint_assignments" as complaint_assignments {
+  * **id** : UUID <<PK>>
+  --
+  * complaint_id : UUID <<FK, RESTRICT>>
+  * municipal_unit_id : UUID <<FK, RESTRICT>>
+  * assigned_by_user_id : UUID <<FK, RESTRICT>>
+  * assigned_at : TIMESTAMPTZ <<default now()>>
+  ended_at : TIMESTAMPTZ
+  notes : TEXT
+  --
+  <<UNIQUE (complaint_id) WHERE ended_at IS NULL>>
+}
+
+' ═══════════════════════════════════════════════════════════════════
+' ENTIDADES: duplicados y grupos
+' ═══════════════════════════════════════════════════════════════════
+entity "complaint_groups" as complaint_groups {
+  * **id** : UUID <<PK>>
+  --
+  * title : VARCHAR(180)
+  * created_by_user_id : UUID <<FK, RESTRICT>>
+  * created_at : TIMESTAMPTZ
+  closed_at : TIMESTAMPTZ
+}
+
+entity "complaint_group_members" as group_members {
+  * **group_id** : UUID <<PK, FK, RESTRICT>>
+  * **complaint_id** : UUID <<PK, FK, RESTRICT>>
+  --
+  * added_by_user_id : UUID <<FK, RESTRICT>>
+  * added_at : TIMESTAMPTZ <<default now()>>
+}
+
+entity "duplicate_proposals" as duplicate_proposals {
+  * **id** : UUID <<PK>>
+  --
+  * complaint_id : UUID <<FK, RESTRICT>>
+  * candidate_complaint_id : UUID <<FK, RESTRICT>>
+  * status : VARCHAR(20) <<CHECK: PENDING|CONFIRMED_GROUP|NOT_DUPLICATE|DISMISSED>>
+  reviewed_by_user_id : UUID <<FK>>
+  reviewed_at : TIMESTAMPTZ
+  * created_at : TIMESTAMPTZ
+  --
+  <<CHECK: complaint_id <> candidate>>
+  <<UNIQUE par LEAST/GREATEST>>
+}
+
+' ═══════════════════════════════════════════════════════════════════
+' ENTIDADES: infracciones y suspensiones
+' ═══════════════════════════════════════════════════════════════════
+entity "violations" as violations {
+  * **id** : UUID <<PK>>
+  --
+  * citizen_user_id : UUID <<FK, RESTRICT>>
+  complaint_id : UUID <<FK, RESTRICT>>
+  * moderator_user_id : UUID <<FK, RESTRICT>>
+  * description : TEXT <<CHECK len>0>>
+  * created_at : TIMESTAMPTZ
+}
+
+entity "suspensions" as suspensions {
+  * **id** : UUID <<PK>>
+  --
+  * citizen_user_id : UUID <<FK, RESTRICT>>
+  * violation_id : UUID <<FK, UNIQUE, RESTRICT>>
+  * started_at : TIMESTAMPTZ
+  * ends_at : TIMESTAMPTZ
+  * created_by_user_id : UUID <<FK, RESTRICT>>
+  * status : VARCHAR(20) <<CHECK: ACTIVE|COMPLETED|CANCELLED>>
+  * created_at : TIMESTAMPTZ
+  --
+  <<CHECK: ends_at = started_at + 168 hours>>
+  <<UNIQUE (citizen_user_id) WHERE status='ACTIVE'>>
+}
+
+' ═══════════════════════════════════════════════════════════════════
+' RELACIONES (cardinalidades)
+' ═══════════════════════════════════════════════════════════════════
+
+' users → identidades y perfiles
+users ||--o{ auth_identities : "1:N (UNIQUE provider+subject)"
+users ||--o| citizen_profiles : "1:0..1 (solo CITIZEN)"
+users ||--o| admin_profiles : "1:0..1 (solo ADMIN)"
+
+' users → roles
+users ||--o{ user_roles : "1:N (roles activos)"
+roles ||--o{ user_roles : "1:N"
+
+' users → membresías de unidad
+users ||--o{ admin_unit_memberships : "1:N"
+municipal_units ||--o{ admin_unit_memberships : "1:N"
+
+' catálogos
+categories ||--o{ subcategories : "1:N (categoria tiene\nsubcategorias)"
+subcategories ||--o{ assignment_rules : "1:N"
+municipal_units ||--o{ assignment_rules : "1:N"
+
+' denuncias
+users ||--o{ complaints : "1:N (ciudadano crea)"
+categories ||--o{ complaints : "1:N"
+subcategories ||--o{ complaints : "1:N (composite FK)"
+complaints ||--o{ grace_sessions : "1:N (una abierta\na la vez)"
+
+' cooldown
+users ||--o| submission_limits : "1:0..1"
+complaints ||--o| submission_limits : "1:0..1 (última formalizada)"
+
+' historial
+complaints ||--o{ status_history : "1:N (auditoría)"
+users ||--o{ status_history : "changed_by (nullable)"
+
+' soluciones
+complaints ||--o{ complaint_solutions : "1:N (reintentos)"
+users ||--o{ complaint_solutions : "submitted_by"
+
+' evidencias
+complaints ||--o{ media_assets : "1:N (COMPLAINT_\\nEVIDENCE)"
+complaint_solutions ||--o{ media_assets : "1:N (SOLUTION_\\nEVIDENCE)"
+media_assets ||--o{ media_processing_jobs : "1:N"
+
+' moderación
+complaints ||--o{ moderation_reviews : "1:N"
+users ||--o{ moderation_reviews : "moderator"
+municipal_units ||--o{ moderation_reviews : "selected_unit"
+complaints ||--o{ complaint_assignments : "1:N (1 activa)"
+municipal_units ||--o{ complaint_assignments : "1:N"
+
+' grupos y duplicados
+complaints ||--o{ complaint_groups : "vía members"
+complaint_groups ||--o{ group_members : "1:N"
+complaints ||--o{ group_members : "1:N"
+complaints ||--o{ duplicate_proposals : "complaint_id"
+complaints ||--o{ duplicate_proposals : "candidate_id"
+
+' infracciones y suspensiones
+users ||--o{ violations : "1:N (ciudadano)"
+complaints ||--o{ violations : "1:N (referencia)"
+users ||--o{ violations : "moderator"
+violations ||--|| suspensions : "1:1 (UNIQUE violation_id)"
+users ||--o{ suspensions : "1:N (1 activa)"
+
+' ═══════════════════════════════════════════════════════════════════
+' NOTAS
+' ═══════════════════════════════════════════════════════════════════
+note bottom of complaints
+  **índices clave:**
+  • idx_complaints_location (GIST sobre location — PostGIS)
+  • idx_complaints_citizen_created (citizen_user_id, created_at DESC)
+  • idx_complaints_status_formalized (status, formalized_at DESC)
+  • idx_complaints_not_deleted (partial: deleted_at IS NULL)
+  • uq_complaint_active_assignment (1 activa por denuncia)
+end note
+
+note bottom of suspensions
+  **CHECK crítico:**
+  ends_at = started_at + 168 horas
+  (el backend calcula dentro de la
+  transacción porque now() es
+  constante por statement)
+  
+  **UNIQUE parcial:**
+  1 suspensión ACTIVE por ciudadano
+  (evita superposición)
+end note
+
+note right of media_assets
+  **CHECK estructural de privacidad:**
+  purpose='COMPLAINT_EVIDENCE'
+    → complaint_id NOT NULL,
+      solution_id NULL
+  purpose='SOLUTION_EVIDENCE'
+    → complaint_id NULL,
+      solution_id NOT NULL
+  
+  Esto garantiza que las vistas
+  por denuncia jamás alcancen
+  la evidencia de solución
+  (y viceversa).
+end note
+
+@enduml

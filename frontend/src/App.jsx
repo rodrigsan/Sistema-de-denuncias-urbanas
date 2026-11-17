@@ -5,6 +5,7 @@ import {
   RequireCitizen,
   RequireModerator,
   RequireLiaison,
+  RequireModeratorOrLiaison,
   RequireSession,
 } from './components/routing/RouteGuards.jsx'
 import { LandingPage } from './pages/LandingPage.jsx'
@@ -22,6 +23,9 @@ const ModerationPage = lazy(() =>
 )
 const TechnicalPage = lazy(() =>
   import('./pages/TechnicalPage.jsx').then((m) => ({ default: m.TechnicalPage })),
+)
+const HistoricalMapPage = lazy(() =>
+  import('./pages/HistoricalMapPage.jsx').then((m) => ({ default: m.HistoricalMapPage })),
 )
 
 export default function App() {
@@ -70,6 +74,16 @@ export default function App() {
                 <ModerationPage />
               </Suspense>
             </RequireModerator>
+          }
+        />
+        <Route
+          path="/moderacion/mapa-historico"
+          element={
+            <RequireModeratorOrLiaison>
+              <Suspense fallback={<PageLoader label="Cargando mapa histórico…" />}>
+                <HistoricalMapPage />
+              </Suspense>
+            </RequireModeratorOrLiaison>
           }
         />
         <Route

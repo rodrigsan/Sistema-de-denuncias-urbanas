@@ -1,8 +1,13 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import OpenLocationCodeModule from 'open-location-code'
 import { apiFetch } from '../../lib/api.js'
 import { encodePlusCode } from '../../lib/pluscode.js'
 import { complaintFormSchema, validateSchema } from '../../lib/validation.js'
-import { CERCADO_BOUNDS } from '../../lib/constants.js'
+import { CERCADO_BOUNDS, isWithinCercado } from '../../lib/constants.js'
+
+// Instancia OLC para decodificar Plus Codes editados manualmente.
+const OpenLocationCode = OpenLocationCodeModule.OpenLocationCode ?? OpenLocationCodeModule
+const olcInstance = new OpenLocationCode()
 
 // Code-splitting: Leaflet (~150 kB) solo se carga cuando se usa el mapa.
 const LocationPicker = lazy(() =>
@@ -18,6 +23,17 @@ const BLOCK_HEADING_CLASSES =
 /** Orden de recorrido para el auto-scroll al primer campo con error. */
 const ERROR_ORDER = ['title', 'description', 'categoryId', 'subcategoryId', 'location']
 
+/** Parsea "-17.39358, -66.14521" en { latitude, longitude } o null. */
+function parseManualCoords(text) {
+  const match = text.trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/)
+  if (!match) return null
+  const latitude = Number.parseFloat(match[1])
+  const longitude = Number.parseFloat(match[2])
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null
+  if (!isWithinCercado(latitude, longitude)) return null
+  return { latitude, longitude }
+}
+
 /**
  * Formulario de denuncia compartido entre creacion (POST /complaints) y
  * edicion en ventana de gracia (PUT /complaints/:id).
@@ -26,7 +42,7 @@ const ERROR_ORDER = ['title', 'description', 'categoryId', 'subcategoryId', 'loc
  *   1. Datos: titulo (tipografia de encabezado), descripcion y
  *      categoria/subcategoria jerarquicas en 2 columnas.
  *   2. Evidencias (slot opcional): la pagina inyecta los recolectores de
- *      fotografias y video; en modo edicion se omite el bloque.
+ *      fotografias y video cuando corresponde.
  *   3. Ubicacion: encabezado con boton "Obtener mi ubicacion", mapa Leaflet
  *      limitado a Cercado y campos obligatorios de Coordenadas y Plus Code.
  *   4. Accion final: boton de envio destacado y centrado al final.
@@ -57,6 +73,9 @@ export function ComplaintForm({
     initial?.location ? { ...initial.location, source: 'MANUAL' } : null,
   )
   const [fieldErrors, setFieldErrors] = useState({})
+  const [manualCoords, setManualCoords] = useState('')
+  const [manualPlusCode, setManualPlusCode] = useState('')
+  const [flyNonce, setFlyNonce] = useState(0)
 
   const titleRef = useRef(null)
   const descriptionRef = useRef(null)
@@ -96,7 +115,47 @@ export function ComplaintForm({
 
   const handleLocationChange = (next) => {
     setLocation(next)
+    setManualCoords(`${next.latitude.toFixed(5)}, ${next.longitude.toFixed(5)}`)
+    setManualPlusCode(encodePlusCode(next.latitude, next.longitude))
     onLocationInteract?.()
+  }
+
+  /**
+   * Edicion manual de coordenadas: parsea "lat, lng" y si es valido dentro
+   * de Cercado, mueve el pin y vuela el mapa.
+   */
+  const handleManualCoordsChange = (text) => {
+    setManualCoords(text)
+    const parsed = parseManualCoords(text)
+    if (parsed) {
+      const next = { ...parsed, source: 'MANUAL' }
+      setLocation(next)
+      setManualPlusCode(encodePlusCode(next.latitude, next.longitude))
+      setFlyNonce((n) => n + 1)
+      onLocationInteract?.()
+    }
+  }
+
+  /**
+   * Edicion manual de Plus Code: decodifica el OLC y si el centro esta dentro
+   * de Cercado, mueve el pin y vuela el mapa.
+   */
+  const handleManualPlusCodeChange = (text) => {
+    setManualPlusCode(text)
+    try {
+      const area = olcInstance.decode(text.trim())
+      if (!area || !Number.isFinite(area.latitudeCenter)) return
+      const lat = area.latitudeCenter
+      const lng = area.longitudeCenter
+      if (!isWithinCercado(lat, lng)) return
+      const next = { latitude: lat, longitude: lng, source: 'MANUAL' }
+      setLocation(next)
+      setManualCoords(`${lat.toFixed(5)}, ${lng.toFixed(5)}`)
+      setFlyNonce((n) => n + 1)
+      onLocationInteract?.()
+    } catch {
+      // Plus Code invalido: no mover el pin
+    }
   }
 
   const handleSubmit = (event) => {
@@ -263,7 +322,7 @@ export function ComplaintForm({
         </div>
       </section>
 
-      {/* Bloque 2 · Evidencias (slot de la pagina; se omite en edicion) */}
+      {/* Bloque 2 · Evidencias (slot opcional de la página) */}
       {evidenceSlot && (
         <section aria-labelledby="block-evidence" className="space-y-5">
           <h2 id="block-evidence" className={BLOCK_HEADING_CLASSES}>
@@ -292,8 +351,14 @@ export function ComplaintForm({
               <div className="h-64 w-full animate-pulse rounded-xl bg-slate-200/70 sm:h-72" aria-hidden="true" />
             }
           >
-            <LocationPicker value={location} onChange={handleLocationChange} />
+            <LocationPicker value={location} onChange={handleLocationChange} flyNonce={flyNonce} />
           </Suspense>
+
+          {location?.source && (
+            <p className="mt-2 text-xs text-ink-soft">
+              {location.source === 'AUTOMATIC' ? 'Ubicación por dispositivo' : 'Ubicación manual'}
+            </p>
+          )}
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <div>
@@ -303,16 +368,18 @@ export function ComplaintForm({
               <input
                 id="complaint-coords"
                 type="text"
-                readOnly
-                value={location ? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}` : ''}
+                value={manualCoords}
+                onChange={(event) => handleManualCoordsChange(event.target.value)}
                 placeholder="-17.39358, -66.14521"
-                className={`w-full rounded-lg border px-3 py-2.5 font-mono text-xs text-ink placeholder:text-slate-400 focus:outline-none ${
-                  locationIssue ? 'border-state-danger bg-white' : 'border-slate-200 bg-surface'
+                className={`w-full rounded-lg border px-3 py-2.5 font-mono text-xs text-ink placeholder:text-slate-400 focus:outline-none focus:ring-2 ${
+                  locationIssue
+                    ? 'border-state-danger bg-white focus:ring-state-danger/20'
+                    : 'border-slate-300 bg-white focus:border-marine-700 focus:ring-marine-700/20'
                 }`}
               />
               <p className="mt-1 text-[10px] text-ink-soft">
-                Límite provincial: Lat {CERCADO_BOUNDS.south} a {CERCADO_BOUNDS.north} · Lng{' '}
-                {CERCADO_BOUNDS.west} a {CERCADO_BOUNDS.east}
+                Lat {CERCADO_BOUNDS.south} a {CERCADO_BOUNDS.north} · Lng {CERCADO_BOUNDS.west} a {CERCADO_BOUNDS.east}
+                {' · '}Puedes escribirlas directamente.
               </p>
             </div>
             <div>
@@ -322,15 +389,17 @@ export function ComplaintForm({
               <input
                 id="complaint-pluscode"
                 type="text"
-                readOnly
-                value={plusCode ?? ''}
+                value={manualPlusCode}
+                onChange={(event) => handleManualPlusCodeChange(event.target.value)}
                 placeholder="85FC4843+3M"
-                className={`w-full rounded-lg border px-3 py-2.5 font-mono text-xs tracking-wide text-ink placeholder:text-slate-400 focus:outline-none ${
-                  locationIssue ? 'border-state-danger bg-white' : 'border-slate-200 bg-surface'
+                className={`w-full rounded-lg border px-3 py-2.5 font-mono text-xs tracking-wide text-ink placeholder:text-slate-400 focus:outline-none focus:ring-2 ${
+                  locationIssue
+                    ? 'border-state-danger bg-white focus:ring-state-danger/20'
+                    : 'border-slate-300 bg-white focus:border-marine-700 focus:ring-marine-700/20'
                 }`}
               />
               <p className="mt-1 text-[10px] text-ink-soft">
-                Código de ubicación global derivado de tus coordenadas.
+                Codigo de ubicacion global. Puedes escribir uno y el mapa se movera.
               </p>
             </div>
           </div>

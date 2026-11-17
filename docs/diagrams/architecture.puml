@@ -1,0 +1,115 @@
+@startuml architecture
+!theme plain
+title Arquitectura C4 — Plataforma de Denuncias Ciudadanas\nMunicipio de Cercado, Cochabamba
+
+skinparam componentStyle rectangle
+skinparam nodesep 60
+skinparam ranksep 80
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+
+' ── Persona ──────────────────────────────────────────────────────────
+actor "Ciudadano" as citizen
+actor "Moderador" as moderator
+actor "Enlace Técnico" as liaison
+
+' ── Nivel 1: Sistema ────────────────────────────────────────────────
+System "Plataforma de\nDenuncias Ciudadanas" as system {
+}
+
+' ── Nivel 2: Contenedores ──────────────────────────────────────────
+Container "Cliente Web\n(React SPA)" as frontend {
+  component "React 19 + Vite 8" as react
+  component "React Router v7" as router
+  component "Tailwind CSS 4" as tailwind
+  component "Leaflet 1.9 (Mapas)" as leaflet
+  component "Zod 4 (Validación cliente)" as zod
+  component "lucide-react (Iconografía)" as lucide
+  component "open-location-code\n(Plus Code cliente)" as olc
+}
+
+Container "Backend API\n(Node.js 24 / Express 4)" as backend {
+  component "Express Router" as express
+  component "Middleware CORS\n(origen restringido)" as cors_mw
+  component "Middleware CSRF\n(verificación Origin)" as csrf_mw
+  component "Middleware Rate Limit\n(general + auth)" as ratelimit_mw
+  component "cookie-parser\n(HMAC session cookies)" as cookies_mw
+  component "Busboy\n(multipart streaming)" as busboy
+  component "Barrido de Gracia\n(setInterval 30s)" as grace_sweep
+}
+
+Container "Base de Datos\n(PostgreSQL 15+)" as database {
+  component "PostGIS 3.x\n(GEOGRAPHY POINT 4326)" as postgis
+  component "Esquema público\n(24 tablas)" as schema
+}
+
+Container "Almacenamiento Privado\nde Archivos" as storage {
+  component "Directorio local ./storage\n(desarrollo)" as local_storage
+  component "S3 / Cloudflare R2\n(producción — sin acceso público)" as s3
+}
+
+' ── Nivel 3: Servicios de Dominio del Backend ───────────────────────
+package "Servicios de Dominio" {
+  component "GoogleOAuthService\n(PKCE S256 + state)" as oauth_svc
+  component "SessionService\n(cookie firmada HMAC)" as session_svc
+  component "GraceService\n(motor de 180s efectivos)" as grace_svc
+  component "PlusCodeService\n(coherencia OLC)" as pluscode_svc
+  component "ComplaintsService\n(denuncias + evidencias)" as complaints_svc
+  component "ModerationService\n(bandeja + duplicados + sanciones)" as moderation_svc
+  component "CitizenTrackingService\n(Mis Denuncias)" as tracking_svc
+  component "TechnicalService\n(atención + soluciones)" as technical_svc
+}
+
+package "Repositorios (SQL)" {
+  component "UsersRepository" as users_repo
+  component "ComplaintsRepository" as complaints_repo
+  component "CatalogsRepository" as catalogs_repo
+  component "MediaRepository" as media_repo
+  component "ModerationRepository" as moderation_repo
+  component "CitizenComplaintsRepository" as citizen_repo
+  component "TechnicalRepository" as technical_repo
+}
+
+' ── Conexiones Externas ──────────────────────────────────────────────
+cloud "Google OAuth 2.0\n(accounts.google.com)" as google_oauth
+
+' ── Relaciones C4 ──────────────────────────────────────────────────
+citizen --> frontend : HTTPS
+moderator --> frontend : HTTPS
+liaison --> frontend : HTTPS
+
+frontend --> backend : "REST API /api/v1\n(credentials: include)"
+frontend --> google_oauth : "OAuth redirect\n(código + PKCE)"
+
+backend --> database : "pg Pool\n(parametrizado)"
+backend --> storage : "Evidencias\n(escritura privada)"
+backend --> google_oauth : "Intercambio de código\n(token + userinfo)"
+
+oauth_svc ..> session_svc : emite cookie HttpOnly
+grace_svc ..> complaints_repo : FOR UPDATE
+complaints_svc ..> grace_svc : withFreshComplaint
+complaints_svc ..> pluscode_svc : resolveLocation
+moderation_svc ..> complaints_repo : withComplaintLock
+technical_svc ..> complaints_repo : withComplaintLock
+
+' ── Notas ───────────────────────────────────────────────────────────
+note right of storage
+  Regla §6.11: los archivos multimedia
+  NUNCA se sirven desde un bucket
+  público. Solo metadatos en la API;
+  entrega firmada en fases futuras.
+end note
+
+note bottom of grace_sweep
+  GRACE_SWEEP_ENABLED=true (por defecto).
+  Formaliza denuncias expiradas
+  cada 30 segundos con SKIP LOCKED.
+end note
+
+note right of cors_mw
+  FRONTEND_ORIGIN=http://localhost:5173
+  credentials: true
+  (nunca comodín en producción)
+end note
+
+@enduml

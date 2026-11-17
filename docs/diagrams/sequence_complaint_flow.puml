@@ -1,0 +1,182 @@
+@startuml sequence_complaint_flow
+!theme plain
+title Diagrama de Secuencia — Flujo Completo del Ciudadano\nAutenticación → Denuncia → Gracia → Formalización → Cooldown
+
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 11
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 200
+skinparam BoxPadding 10
+
+box "Navegador" #E8F0FE
+  participant "Ciudadano" as citizen
+  participant "React SPA\n(Vite + Router)" as spa
+end box
+
+box "Backend (Node.js/Express)" #FFF8E1
+  participant "AuthController" as auth
+  participant "ComplaintsController" as complaints_ctrl
+  participant "GraceService" as grace_svc
+  participant "PlusCodeService" as pluscode_svc
+  participant "MediaRepository" as media_repo
+  participant "ComplaintsRepository" as complaints_repo
+end box
+
+box "Servicios Externos" #E8F5E9
+  participant "Google OAuth 2.0" as google
+  participant "PostgreSQL + PostGIS" as pg
+end box
+
+participant "Almacenamiento\nPrivado" as storage
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE A: AUTENTICACIÓN
+' ═══════════════════════════════════════════════════════════════════
+== 1. Autenticación con Google (OAuth 2.0 + PKCE S256) ==
+
+citizen -> spa : Clic "Continuar con Google"
+spa -> auth : GET /auth/google/login\n(fetch redirect:'manual')
+auth -> auth : Genera state (16 B) +\n code_verifier (32 B)
+auth --> spa : Set-Cookie: oauth_tx (firmada, 10 min) +\n 302 a Google (client_id, S256, state)
+spa -> google : Redirect completo
+google --> citizen : Formulario de consentimiento
+citizen -> google : Autoriza
+google -> auth : GET /auth/google/callback\n?code=...&state=...
+
+auth -> auth : Verifica state (timingSafeEqual)\n contra cookie oauth_tx
+auth -> google : POST /token\n(code + code_verifier + client_id)
+google --> auth : access_token
+auth -> google : GET /v1/userinfo\n(Bearer token)
+google --> auth : { sub, email, email_verified }
+
+auth -> pg : SELECT por (provider='google',\n provider_subject=sub)
+pg --> auth : null (primer acceso)
+auth -> pg : BEGIN;\nINSERT users (CITIZEN, ACTIVE);\nINSERT auth_identities;\nCOMMIT;
+pg --> auth : user_id
+
+auth -> auth : resolveExpiredSuspension\n(si SUSPENDED y 168h cumplidas)
+auth -> auth : Emite cookie sesión firmada\n{ userId, iat } — TTL 8h
+auth --> spa : 302 → /auth/callback?status=success
+spa -> spa : refresca /auth/me → usuario autenticado
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE B: ALIAS (primer acceso)
+' ═══════════════════════════════════════════════════════════════════
+== 2. Selección de Alias (obligatorio en primer acceso) ==
+
+spa -> spa : Guarda RequireCitizen\nredirige a /auth/alias
+citizen -> spa : Escribe alias "Vecino CBBA"
+spa -> auth : POST /auth/alias\n{ alias: "Vecino CBBA" }
+auth -> pg : INSERT citizen_profiles\n(alias, administrative_code = 'CER-XXXXXXXX')
+pg --> auth : { alias, administrativeCode }
+auth --> spa : 201 { alias, administrativeCode }
+spa -> spa : AuthContext.refresh()\n→ requiresAlias = false
+spa --> citizen : "Tu alias quedó registrado"\n+ código administrativo
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE C: CREACIÓN DE DENUNCIA
+' ═══════════════════════════════════════════════════════════════════
+== 3. Creación de Denuncia (POST /complaints) ==
+
+citizen -> spa : Completa formulario:\nTítulo, Descripción, Categoría,\nUbicación (mapa Leaflet)
+
+spa -> spa : Zod valida (3-180, 10-5000,\nUUID, lat/lng ±90/±180)
+spa -> spa : encodePlusCode(lat, lng)\n→ "57JMJR4V+H6"
+spa -> pluscode_svc : (validación en backend)
+
+spa -> complaints_ctrl : POST /complaints\n{ title, description, categoryId,\n  subcategoryId, latitude, longitude,\n  plusCode, plusCodeSource: "MANUAL" }
+
+complaints_ctrl -> pluscode_svc : resolveLocation()
+pluscode_svc -> pluscode_svc : Verifica coherencia\n(dentro de celda OLC o ≤ radio+100m)
+alt Ubicación coherente
+  pluscode_svc --> complaints_ctrl : { plusCode, method: "MATCH" }
+else Discrepancia MANUAL sin corrección
+  pluscode_svc --> complaints_ctrl : 422 LOCATION_MISMATCH\n+ suggestedPlusCode
+  complaints_ctrl --> spa : 422 (bloqueado hasta corregir)
+end
+
+complaints_ctrl -> complaints_repo : INSERT complaints\n(status='GRACE_PERIOD',\n  grace_remaining_seconds=180,\n  grace_running_since=now(),\n  public_code='DEN-XXXXXXXX')
+complaints_repo -> pg : INSERT + RETURNING
+pg --> complaints_repo : { id, publicCode, createdAt }
+complaints_repo --> complaints_ctrl : Denuncia creada
+
+complaints_ctrl --> spa : 201 { id, publicCode, status,\n  grace: { remainingSeconds: 180, state: "RUNNING" } }
+spa --> citizen : Redirige a /mis-denuncias/:id\n(con contador en vivo)
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE D: EVIDENCIAS
+' ═══════════════════════════════════════════════════════════════════
+== 4. Subida de Evidencias (durante gracia) ==
+
+citizen -> spa : Arrastra 2 fotos JPG
+spa -> spa : Valida en cliente\n(3 máx, 5MB, magic bytes)
+spa -> complaints_ctrl : POST /complaints/:id/evidence\n(multipart/form-data)
+complaints_ctrl -> media_repo : INSERT media_assets\n(purpose='COMPLAINT_EVIDENCE',\n  processing_status='PENDING')\nINSERT media_processing_jobs\n(status='PENDING')
+media_repo -> pg : INSERT + RETURNING
+pg --> media_repo : { id, mimeType, sizeBytes }
+complaints_ctrl -> storage : Mueve archivo temporal\na storage/complaints/:id/
+media_repo --> complaints_ctrl : Metadatos registrados
+complaints_ctrl --> spa : 201 { id, mediaType, sizeBytes,\n  processingStatus: "PENDING" }
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE E: VENTANA DE GRACIA (3 minutos efectivos)
+' ═══════════════════════════════════════════════════════════════════
+== 5. Ventana de Gracia (180 segundos efectivos) ==
+
+alt Opción A: Editar durante la gracia
+  citizen -> spa : Clic "Editar"
+  spa -> complaints_ctrl : PUT /:id/edit-session/start
+  complaints_ctrl -> grace_svc : withFreshComplaint()
+  grace_svc -> complaints_repo : SELECT ... FOR UPDATE
+  grace_svc -> pg : UPDATE remaining -= elapsed,\n  running_since = NULL
+  complaints_ctrl --> spa : 200 (grace.state: "PAUSED_FOR_EDIT")
+  citizen -> spa : Modifica campos
+  spa -> complaints_ctrl : PUT /complaints/:id\n(cuerpo completo)
+  complaints_ctrl -> complaints_repo : UPDATE + historia
+  complaints_ctrl --> spa : 200 (reloj reanudado)
+else Opción B: Eliminar durante la gracia
+  citizen -> spa : Clic "Eliminar"
+  spa -> complaints_ctrl : DELETE /complaints/:id
+  complaints_ctrl -> complaints_repo : UPDATE deleted_at=now(),\n  grace_running_since=NULL
+  complaints_ctrl --> spa : 204 (oculta al ciudadano,\n  sin cooldown)
+else Opción C: Cancelar edición
+  citizen -> spa : Clic "Cancelar edición"
+  spa -> complaints_ctrl : POST /:id/edit-session/cancel
+  complaints_ctrl -> complaints_repo : UPDATE running_since=now()\n  (sesión 'CANCELLED')
+  complaints_ctrl --> spa : 200 (reloj reanudado)
+end
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE F: FORMALIZACIÓN AUTOMÁTICA
+' ═══════════════════════════════════════════════════════════════════
+== 6. Formalización Automática (al expirar 180s) ==
+
+spa -> spa : Contador llega a 00:00
+spa -> complaints_ctrl : GET /complaints/:id\n(dispara formalización perezosa)
+complaints_ctrl -> grace_svc : withFreshComplaint()
+grace_svc -> complaints_repo : SELECT ... FOR UPDATE
+grace_svc -> pg : UPDATE status='PENDING_REVIEW',\n  formalized_at=now(), remaining=0
+grace_svc -> pg : INSERT complaint_status_history\n('GRACE_PERIOD_EXPIRED')
+grace_svc -> pg : UPSERT citizen_submission_limits\n(next_allowed_at = now()+60min)
+complaints_ctrl --> spa : 200 (status: "PENDING_REVIEW")
+spa --> citizen : "¡Denuncia formalizada!"\n(badge ámbar)
+
+' ═══════════════════════════════════════════════════════════════════
+' FASE G: COOLDOWN DE 60 MINUTOS
+' ═══════════════════════════════════════════════════════════════════
+== 7. Cooldown de 60 Minutos ==
+
+citizen -> spa : Intenta crear otra denuncia
+spa -> complaints_ctrl : POST /complaints
+complaints_ctrl -> pg : SELECT next_allowed_at\nFROM citizen_submission_limits
+pg --> complaints_ctrl : next_allowed_at > now()
+complaints_ctrl --> spa : 429 SUBMISSION_COOLDOWN\n{ secondsRemaining: ~3600 }
+spa --> citizen : "Debes esperar 60 minutos\nhasta tu próxima denuncia"
+
+note over citizen, pg
+  El cooldown de 60 minutos solo se activa al formalizar
+  una denuncia (no al eliminarla durante la gracia).
+  La eliminación en gracia NO toca citizen_submission_limits.
+end note
+
+@enduml

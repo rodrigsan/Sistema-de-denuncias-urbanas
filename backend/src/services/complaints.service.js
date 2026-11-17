@@ -140,6 +140,16 @@ export function createComplaintsService({
       );
     }
 
+    // Bloqueo: solo una denuncia activa en ventana de gracia a la vez.
+    const hasGrace = await complaintsRepository.hasActiveGraceComplaint(actor.id)
+    if (hasGrace) {
+      throw new AppError(
+        409,
+        'ACTIVE_GRACE_PERIOD_EXISTS',
+        'Tienes una denuncia en período de gracia activa. Debes esperar a que se formalice o cancelarla antes de registrar otra.'
+      )
+    }
+
     const resolution = plusCodeService.resolveLocation({
       latitude: body.latitude,
       longitude: body.longitude,
@@ -217,7 +227,9 @@ export function createComplaintsService({
         return { complaint };
       }
     );
-    return toComplaintResponse(ensureOutcome(outcome).complaint);
+    const complaint = ensureOutcome(outcome).complaint;
+    const evidence = await mediaRepository.listEvidence(complaintId);
+    return toComplaintResponse(complaint, evidence);
   }
 
   async function updateComplaint(actor, complaintId, body) {
@@ -316,7 +328,9 @@ export function createComplaintsService({
         return { complaint };
       }
     );
-    return toComplaintResponse(ensureOutcome(outcome).complaint);
+    const complaint = ensureOutcome(outcome).complaint;
+    const evidence = await mediaRepository.listEvidence(complaintId);
+    return toComplaintResponse(complaint, evidence);
   }
 
   async function deleteComplaint(actor, complaintId, body) {

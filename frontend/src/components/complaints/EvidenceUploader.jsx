@@ -34,7 +34,7 @@ export function EvidenceUploader({ kind, files, onChange, existingCounts, disabl
     for (const file of incoming) {
       if (!typeList.includes(file.type)) {
         errors.push(
-          `${file.name}: este bloque acepta solo ${isImage ? 'fotografías (JPG, PNG, HEIC)' : 'videos (MP4, MOV)'}.`,
+          `${file.name}: Enviar el archivo en los formatos admitidos.`,
         )
         continue
       }

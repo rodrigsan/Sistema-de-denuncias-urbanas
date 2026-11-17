@@ -1,7 +1,7 @@
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { db } from '../src/config/database.js';
-import { createTestHarness, plusCodeFor } from './helpers/fixtures.js';
+import { buildMp4Buffer, buildPngBuffer, createTestHarness, plusCodeFor } from './helpers/fixtures.js';
 
 const harness = createTestHarness({ db });
 let baseUrl;
@@ -55,6 +55,17 @@ async function createComplaint(jar) {
   });
   assert.equal(response.status, 201);
   return (await response.json()).id;
+}
+
+async function uploadEvidence(jar, complaintId, buffer, mimeType, filename, durationSeconds) {
+  const form = new FormData();
+  form.append('file', new Blob([buffer], { type: mimeType }), filename);
+  if (durationSeconds !== undefined) form.append('duration_seconds', String(durationSeconds));
+  return fetch(`${baseUrl}/api/v1/complaints/${complaintId}/evidence`, {
+    method: 'POST',
+    headers: { Cookie: jar.header() },
+    body: form,
+  });
 }
 
 async function getGraceRow(complaintId) {
@@ -170,9 +181,36 @@ describe('pausa y reanudacion', () => {
     const { jar } = await harness.loginCitizenWithAlias();
     const complaintId = await createComplaint(jar);
 
-    await fetchAs(jar, `/api/v1/complaints/${complaintId}/edit-session/start`, {
+    const imageUpload = await uploadEvidence(
+      jar,
+      complaintId,
+      buildPngBuffer(512),
+      'image/png',
+      'foto.png'
+    );
+    assert.equal(imageUpload.status, 201);
+    const videoUpload = await uploadEvidence(
+      jar,
+      complaintId,
+      buildMp4Buffer(),
+      'video/mp4',
+      'video.mp4',
+      10
+    );
+    assert.equal(videoUpload.status, 201);
+
+    const startResponse = await fetchAs(jar, `/api/v1/complaints/${complaintId}/edit-session/start`, {
       method: 'PUT',
     });
+    const started = await startResponse.json();
+    assert.equal(startResponse.status, 200);
+    assert.deepEqual(
+      started.evidence.map(({ mediaType, mimeType }) => ({ mediaType, mimeType })),
+      [
+        { mediaType: 'IMAGE', mimeType: 'image/png' },
+        { mediaType: 'VIDEO', mimeType: 'video/mp4' },
+      ]
+    );
 
     const cancelResponse = await fetchAs(
       jar,
@@ -182,6 +220,13 @@ describe('pausa y reanudacion', () => {
     assert.equal(cancelResponse.status, 200);
     const body = await cancelResponse.json();
     assert.equal(body.grace.state, 'RUNNING');
+    assert.deepEqual(
+      body.evidence.map(({ mediaType, mimeType }) => ({ mediaType, mimeType })),
+      [
+        { mediaType: 'IMAGE', mimeType: 'image/png' },
+        { mediaType: 'VIDEO', mimeType: 'video/mp4' },
+      ]
+    );
 
     const sessions = await getSessions(complaintId);
     assert.ok(sessions.some((s) => s.end_reason === 'CANCELLED'));

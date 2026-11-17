@@ -35,6 +35,7 @@ export function createAuthRouter({
   router.get('/google/callback', authRateLimiter, controller.googleCallback);
 
   router.get('/me', requireAuth, controller.me);
+  router.get('/cooldown-status', requireAuth, controller.cooldownStatus);
   router.post(
     '/alias',
     requireAuth,

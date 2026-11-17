@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ChevronLeft, ChevronRight, Copy, Gavel, Inbox, LayoutDashboard } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Gavel, Inbox, LayoutDashboard, MapPin } from 'lucide-react'
 import { apiFetch } from '../lib/api.js'
 import { formatDateTime } from '../lib/utils.js'
 import { AdminMap } from '../components/admin/AdminMap.jsx'
 import { ReviewModal } from '../components/admin/ReviewModal.jsx'
 import { ViolationModal } from '../components/admin/ViolationModal.jsx'
 import { DuplicateCandidates } from '../components/admin/DuplicateCandidates.jsx'
+import { useNavigate } from 'react-router-dom'
 
 const PAGE_SIZE = 10
 
@@ -16,6 +17,7 @@ const PAGE_SIZE = 10
  * sancion de infracciones (168 h). PII minimizada: solo el alias.
  */
 export function ModerationPage() {
+  const navigate = useNavigate()
   const [data, setData] = useState({ complaints: [], pagination: { page: 1, limit: PAGE_SIZE, total: 0 } })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -58,7 +60,7 @@ export function ModerationPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="flex flex-wrap items-center gap-3">
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-ink">
             <LayoutDashboard size={24} className="text-marine-700" aria-hidden="true" />
             Bandeja de Moderación
@@ -67,6 +69,14 @@ export function ModerationPage() {
             {data.pagination.total} denuncia(s) pendiente(s) de revisión · orden FIFO
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => navigate('/moderacion/mapa-historico')}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-marine-700 px-3.5 py-2 text-xs font-bold text-white transition-colors hover:bg-marine-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-marine-950"
+        >
+          <MapPin size={14} aria-hidden="true" />
+          Mapa Histórico
+        </button>
       </div>
 
       {loading ? (

@@ -9,13 +9,16 @@ import { useEffect, useState } from 'react'
  *   confirma la formalizacion perezosa del backend).
  * - PAUSED_FOR_EDIT: congelado; devuelve el valor persistido.
  *
- * El componente que lo usa debe re-montarse con key al refrescar los datos
- * del servidor para que el contador se resincronice.
+ * Sincroniza el contador con los datos del servidor cuando cambia el estado
+ * o el tiempo restante, sin depender de que el componente se remonte.
  */
 export function useGraceTimer({ remainingSeconds, state, onExpire }) {
   const [left, setLeft] = useState(remainingSeconds)
 
   useEffect(() => {
+    // Sincroniza el valor mostrado al pausar o reanudar desde el servidor.
+    // eslint-disable-next-line react/set-state-in-effect -- sincronización del contador con el servidor
+    setLeft(remainingSeconds)
     if (state !== 'RUNNING' || remainingSeconds <= 0) return undefined
 
     const deadline = Date.now() + remainingSeconds * 1000

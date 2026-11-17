@@ -1,0 +1,82 @@
+@startuml state_complaint_lifecycle
+!theme plain
+title Máquina de Estados Finitos del Ciclo de Vida de la Denuncia\nEstados y Transiciones del Esquema SQL + Backend Node.js
+
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam state {
+  BackgroundColor #F8FAFC
+  BorderColor #1E3A8A
+  ArrowColor #DC2626
+}
+
+state "GRACE_PERIOD\n(ventana de gracia\n180 s efectivos)" as GRACE_PERIOD #D9770633
+state "PENDING_REVIEW\n(pendiente de\nrevisión)" as PENDING_REVIEW #D9770633
+state "REJECTED\n(rechazada)" as REJECTED #DC262633
+state "ASSIGNED\n(asignada a\nunidad municipal)" as ASSIGNED #EA580C33
+state "IN_PROGRESS\n(en atención\ntécnica)" as IN_PROGRESS #EA580C33
+state "SOLUTION_SUBMITTED\n(solución propuesta,\nen verificación)" as SOLUTION_SUBMITTED #EA580C33
+state "RESOLVED\n(resuelta)" as RESOLVED #16A34A33
+state "ELIMINADA\n(soft-delete\nvisible solo en BD)" as ELIMINATED #DC262655
+
+[*] --> GRACE_PERIOD : POST /complaints\n(creación: remaining=180,\n running_since=now())
+
+GRACE_PERIOD --> GRACE_PERIOD : PUT /edit-session/start\n(pausa reloj)\nPUT /complaints/:id\n(guarda + reanuda)\nPOST /edit-session/cancel\n(descarta + reanuda)
+GRACE_PERIOD --> ELIMINATED : DELETE /complaints/:id\n(dentro de gracia)\n→ deleted_at=now(),\n  sin cooldown
+
+GRACE_PERIOD --> PENDING_REVIEW : Expira 180 s efectivos\n(acceso lazy o barrido 30s)\n→ formalized_at=now(),\n  status='PENDING_REVIEW',\n  + citizen_submission_limits\n  (cooldown 60 min)
+
+PENDING_REVIEW --> ASSIGNED : POST /approve\n{ municipalUnitId }\n→ moderation_reviews(APPROVED),\n  complaint_assignments,\n  status='ASSIGNED',\n  formalized_at ya seteado
+
+PENDING_REVIEW --> REJECTED : POST /reject\n{ rejectionReason }\n→ moderation_reviews(REJECTED),\n  status='REJECTED'\n(motivo obligatorio:\nCHECK en BD)
+
+ASSIGNED --> IN_PROGRESS : POST /start-process\n(Enlace Técnico)\n→ history:\n'TECHNICAL_WORK_STARTED'
+
+IN_PROGRESS --> SOLUTION_SUBMITTED : POST /submit-solution\n{ description }\n→ complaint_solutions(SUBMITTED),\n  status='SOLUTION_SUBMITTED'
+
+SOLUTION_SUBMITTED --> RESOLVED : POST /solutions/:id/verify\n{ decision: 'APPROVE' }\n→ solution.status='APPROVED',\n  status='RESOLVED',\n  resolved_at=now()\n(asignación sigue activa:\ntrazabilidad)
+
+SOLUTION_SUBMITTED --> IN_PROGRESS : POST /solutions/:id/verify\n{ decision: 'RETURN',\n  reviewComment }\n→ solution.status='RETURNED',\n  status='IN_PROGRESS'\n(el Moderador devuelve\ncon comentario obligatorio)
+
+IN_PROGRESS --> SOLUTION_SUBMITTED : POST /submit-solution\n(reintento: nueva\ncomplaint_solutions row,\nla anterior queda RETURNED)
+
+note bottom of GRACE_PERIOD
+  Sub-estados del reloj:
+  RUNNING: grace_running_since ≠ NULL
+  PAUSED_FOR_EDIT: grace_running_since IS NULL
+  (sesión abierta en complaint_grace_sessions)
+  
+  Invariante: remaining + elapsed ≤ 180
+  (CHECK: grace_remaining_seconds
+  BETWEEN 0 AND 180)
+end note
+
+note bottom of ELIMINATED
+  La denuncia borrada conserva:
+  - deleted_at (timestamp)
+  - deletion_reason (VARCHAR 100)
+  - status queda en el último valor
+  - reloj congelado (running_since=NULL)
+  
+  Invisible para:
+  - Bandeja del Moderador (WHERE deleted_at IS NULL)
+  - "Mis Denuncias" (WHERE deleted_at IS NULL)
+  - Mapa administrativo
+  - Búsqueda de duplicados
+end note
+
+note right of RESOLVED
+  Estados terminales:
+  - RESOLVED: flujo exitoso
+  - REJECTED: el Moderador
+    la rechazó con motivo
+  - ELIMINATED: el ciudadano
+    la borró en gracia
+  
+  Ninguna transición sale
+  de un estado terminal
+  (salvo reingreso por
+  nueva denuncia).
+end note
+
+@enduml

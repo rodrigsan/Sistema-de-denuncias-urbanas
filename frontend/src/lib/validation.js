@@ -18,8 +18,8 @@ export const complaintFormSchema = z.object({
     .max(5000, 'La descripción admite como máximo 5000 caracteres.'),
   categoryId: z.string().min(1, 'Selecciona una categoría.'),
   subcategoryId: z.string().min(1, 'Selecciona una subcategoría.'),
-  latitude: z.number({ error: 'Ubica el incidente en el mapa.' }),
-  longitude: z.number({ error: 'Ubica el incidente en el mapa.' }),
+  latitude: z.number({ error: 'Ubica el incidente en el mapa.' }).min(-90, 'Latitud fuera de rango.').max(90, 'Latitud fuera de rango.'),
+  longitude: z.number({ error: 'Ubica el incidente en el mapa.' }).min(-180, 'Longitud fuera de rango.').max(180, 'Longitud fuera de rango.'),
 })
 
 /** Valida un esquema y devuelve { ok, data, fieldErrors }. */

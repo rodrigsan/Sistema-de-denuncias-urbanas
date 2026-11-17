@@ -1,6 +1,7 @@
 import { AppError } from '../utils/errors.js';
 import { logger } from '../utils/logger.js';
 import { asyncHandler } from '../utils/async-handler.js';
+import { db } from '../config/database.js';
 
 /**
  * Controladores de autenticacion (Fase 2).
@@ -157,6 +158,52 @@ export function createAuthController({
   }
 
   /**
+   * GET /api/v1/auth/cooldown-status
+   */
+  async function cooldownStatus(req, res) {
+    const userId = req.user.id;
+
+    // Consultar limites de envío del ciudadano
+    const limitQuery = `
+      SELECT next_allowed_at, last_formalized_complaint_id
+      FROM citizen_submission_limits
+      WHERE citizen_user_id = $1
+    `;
+    const limitRows = await db.query(limitQuery, [userId]);
+
+    if (limitRows.rows.length === 0) {
+      // No hay registro de cooldown: el usuario puede crear denuncias
+      return res.status(200).json({
+        inCooldown: false,
+        secondsRemaining: 0,
+        message: null,
+      });
+    }
+
+    const limit = limitRows.rows[0];
+    const now = new Date();
+    const nextAllowed = new Date(limit.next_allowed_at);
+
+    if (now >= nextAllowed) {
+      // El cooldown ha expirado
+      return res.status(200).json({
+        inCooldown: false,
+        secondsRemaining: 0,
+        message: null,
+      });
+    }
+
+    // Calcular tiempo restante en segundos
+    const secondsRemaining = Math.ceil((nextAllowed - now) / 1000);
+
+    return res.status(200).json({
+      inCooldown: true,
+      secondsRemaining,
+      message: `Debes esperar ${Math.ceil(secondsRemaining / 60)} minutos antes de crear una nueva denuncia.`,
+    });
+  }
+
+  /**
    * POST /api/v1/auth/alias
    */
   const setAlias = asyncHandler(async (req, res) => {
@@ -199,5 +246,5 @@ export function createAuthController({
     res.status(204).end();
   }
 
-  return { googleLogin, googleCallback, me, setAlias, logout };
+  return { googleLogin, googleCallback, me, setAlias, logout, cooldownStatus };
 }

@@ -55,3 +55,16 @@ export function RequireLiaison({ children }) {
   if (!user.roles?.includes('TECHNICAL_LIAISON')) return <Navigate to="/" replace />
   return children
 }
+
+/** Rutas accesibles por MODERATOR o TECHNICAL_LIAISON. */
+export function RequireModeratorOrLiaison({ children }) {
+  const { user, loading } = useAuth()
+
+  if (loading) return <PageLoader />
+  if (!user) return <Navigate to="/" replace />
+  const roles = user.roles ?? []
+  if (!roles.includes('MODERATOR') && !roles.includes('TECHNICAL_LIAISON')) {
+    return <Navigate to="/" replace />
+  }
+  return children
+}

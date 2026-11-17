@@ -8,6 +8,7 @@ import { createCategoriesRouter, createMunicipalUnitsRouter } from './routes/cat
 import { createCitizensRouter } from './routes/citizens.routes.js';
 import { createComplaintsRouter } from './routes/complaints.routes.js';
 import { createModerationRouter } from './routes/moderation.routes.js';
+import { createReportsRouter } from './routes/reports.routes.js';
 import { createTechnicalRouter } from './routes/technical.routes.js';
 import { createSessionService } from './services/session.service.js';
 import { createOAuthStateService } from './services/oauth-state.service.js';
@@ -19,12 +20,14 @@ import { createMediaRepository } from './repositories/media.repository.js';
 import { createModerationRepository } from './repositories/moderation.repository.js';
 import { createCitizenComplaintsRepository } from './repositories/citizen-complaints.repository.js';
 import { createTechnicalRepository } from './repositories/technical.repository.js';
+import { createReportsRepository } from './repositories/reports.repository.js';
 import { createGraceService } from './services/grace.service.js';
 import { createPlusCodeService } from './services/plus-code.service.js';
 import { createComplaintsService } from './services/complaints.service.js';
 import { createModerationService } from './services/moderation.service.js';
 import { createCitizenTrackingService } from './services/citizen-tracking.service.js';
 import { createTechnicalService } from './services/technical.service.js';
+import { createReportsService } from './services/reports.service.js';
 import { createLoadSession } from './middlewares/load-session.js';
 import { createCsrfOrigin } from './middlewares/csrf-origin.js';
 import { createGeneralRateLimiter, createAuthRateLimiter } from './middlewares/rate-limit.js';
@@ -56,6 +59,8 @@ export function createApp({
   moderationService,
   citizenTrackingService,
   technicalService,
+  reportsRepository,
+  reportsService,
   http,
 } = {}) {
   if (!db) {
@@ -102,6 +107,13 @@ export function createApp({
       moderationRepository: moderationRepo,
       mediaRepository: mediaRepo,
       config,
+    });
+
+  const reportsRepo = reportsRepository ?? createReportsRepository({ db });
+  const reportsSvc =
+    reportsService ??
+    createReportsService({
+      reportsRepository: reportsRepo,
     });
 
   const app = express();
@@ -185,6 +197,15 @@ export function createApp({
       usersRepository: usersRepo,
       technicalService: technicalSvc,
       config,
+      csrfOrigin,
+    })
+  );
+
+  app.use(
+    '/api/v1/reports',
+    createReportsRouter({
+      usersRepository: usersRepo,
+      reportsService: reportsSvc,
       csrfOrigin,
     })
   );

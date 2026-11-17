@@ -30,6 +30,7 @@ export function AliasPage() {
 
     const result = validateSchema(aliasSchema, alias)
     if (!result.ok) {
+      // Usar el primer mensaje de error del schema Zod (más específico)
       setFieldError(result.fieldErrors[''] ?? 'Alias invalido.')
       return
     }

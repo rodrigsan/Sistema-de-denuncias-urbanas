@@ -113,6 +113,24 @@ export function createComplaintsRepository({ db }) {
   }
 
   /**
+   * Verifica si el ciudadano ya tiene una denuncia en su ventana de gracia
+   * activa (GRACE_PERIOD, no eliminada). Usado para bloquear la creación
+   * de una nueva hasta que la actual se formalice o se cancele.
+   */
+  async function hasActiveGraceComplaint(citizenUserId) {
+    const { rows } = await db.query(
+      `SELECT id
+         FROM complaints
+        WHERE citizen_user_id = $1
+          AND status = 'GRACE_PERIOD'
+          AND deleted_at IS NULL
+        LIMIT 1`,
+      [citizenUserId]
+    );
+    return rows.length > 0
+  }
+
+  /**
    * Crea la denuncia en gracia. Reintenta ante colision de public_code.
    */
   async function createComplaint({
@@ -430,6 +448,7 @@ export function createComplaintsRepository({ db }) {
     withComplaintLock,
     findActiveCategorySubcategory,
     getSubmissionLimit,
+    hasActiveGraceComplaint,
     createComplaint,
     updateComplaintFields,
     setStatusAndHistory,

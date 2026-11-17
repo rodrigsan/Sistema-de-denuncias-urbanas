@@ -1,0 +1,125 @@
+@startuml modules
+!theme plain
+title Diseño por Capas del Backend\nNode.js 24 / Express 4 — SOLID
+
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 11
+skinparam nodesep 30
+skinparam ranksep 50
+skinparam rectangle {
+  BackgroundColor #F8FAFC
+  BorderColor #1E3A8A
+  RoundCorner 10
+}
+skinparam arrow {
+  Color #1E3A8A
+  FontSize 10
+}
+
+' ── Capa 1: Rutas (entry points REST) ───────────────────────────────
+package "Routes (Punto de Entrada REST)" as layer_routes #E8F0FE {
+  rectangle "health.routes.js\nGET /health\\nGET /health/ready" as health_routes
+  rectangle "auth.routes.js\nGET /auth/google/login\\nGET /auth/google/callback\\nGET /auth/me\\nPOST /auth/alias\\nPOST /auth/logout" as auth_routes
+  rectangle "citizens.routes.js\nGET /citizens/me\\nGET /citizens/complaints" as citizens_routes
+  rectangle "complaints.routes.js\nPOST /complaints\\nGET /complaints/:id\\nPUT /:id/edit-session/start\\nPUT /complaints/:id\\nPOST /:id/edit-session/cancel\\nDELETE /complaints/:id\\nPOST /:id/evidence\\nDELETE /:id/evidence/:eid" as complaints_routes
+  rectangle "moderation.routes.js\nGET /moderation/complaints\\nPOST /:id/approve|reject\\nGET /:id/duplicate-candidates\\nPOST /:id/duplicate-proposals\\nPOST /solutions/:id/verify\\nPOST /violations\\nPOST /groups" as moderation_routes
+  rectangle "technical.routes.js\nGET /technical/complaints\\nPOST /:id/start-process\\nPOST /:id/submit-solution\\nPOST /solutions/:sid/evidence" as technical_routes
+}
+
+' ── Capa 2: Middlewares ──────────────────────────────────────────────
+package "Middlewares (Transversales)" as layer_middleware #FDF2E9 {
+  rectangle "require-auth.js\nResuelve usuario desde BD\\n(gestiona suspended/requireAlias)" as require_auth
+  rectangle "require-role.js\nRBAC: MODERATOR |\\nTECHNICAL_LIAISON" as require_role
+  rectangle "csrf-origin.js\nVerifica Origin en\\nmétodos mutantes" as csrf_origin
+  rectangle "load-session.js\nParsea cookie firmada\\nHMAC → req.session" as load_session
+  rectangle "evidence-upload.js\nBusboy streaming +\\nmagic bytes + límites" as evidence_upload
+  rectangle "error-handler.js\nAppError vs 5xx genérico\\n(nada de stack/SQL)" as error_handler
+  rectangle "not-found.js\n404 uniforme" as not_found
+  rectangle "rate-limit.js\\nGeneral (100/min) +\\nAuth (10/15min)" as rate_limit
+}
+
+' ── Capa 3: Validadores (Zod) ────────────────────────────────────────
+package "Validators (Espejo del Backend)" as layer_validators #E8F5E9 {
+  rectangle "auth.validators.js\\nvalidateBody(schema) +\\nsetAliasBodySchema" as auth_validators
+  rectangle "common.validators.js\\nvalidateQuery(schema) +\\npaginationQuerySchema" as common_validators
+  rectangle "complaints.validators.js\\ncreateComplaintBodySchema\\ndeleteComplaintBodySchema" as complaints_validators
+  rectangle "moderation.validators.js\\napprove/reject/proposals\\nverify/violations/groups" as moderation_validators
+  rectangle "citizen-tracking.validators.js\\nmyComplaintsQuerySchema\\n(status + paginación)" as citizen_validators
+  rectangle "technical.validators.js\\ntechnicalComplaintsQuerySchema\\nsubmitSolutionBodySchema" as technical_validators
+}
+
+' ── Capa 4: Controladores ───────────────────────────────────────────
+package "Controllers (HTTP → Servicio)" as layer_controllers #FFF8E1 {
+  rectangle "auth.controller.js" as auth_ctrl
+  rectangle "complaints.controller.js" as complaints_ctrl
+  rectangle "moderation.controller.js" as moderation_ctrl
+  rectangle "technical.controller.js" as technical_ctrl
+  rectangle "citizens.controller.js" as citizens_ctrl
+  rectangle "health.controller.js" as health_ctrl
+}
+
+' ── Capa 5: Servicios de Negocio ────────────────────────────────────
+package "Services (Lógica de Dominio)" as layer_services #F3E5F5 {
+  rectangle "GoogleOAuthService\nPKCE S256 + exchangeCode\\n+ fetchProfile (DI de http)" as oauth_service
+  rectangle "SessionService\nHMAC cookie, TTL,\\nissue/clear" as session_service
+  rectangle "OAuthStateService\\nstate + code_verifier\\nen cookie temporal (10 min)" as oauth_state_service
+  rectangle "GraceService\\nwithFreshComplaint()\\nsweepExpired()\\n180s efectivos" as grace_service
+  rectangle "PlusCodeService\\nresolveLocation()\\nMATCH|CORRECTED|SERVER_RECALC" as pluscode_service
+  rectangle "ComplaintsService\\ncreate/get/startEdit/update\\ncancel/delete/addEvidence\\ndeleteEvidence" as complaints_service
+  rectangle "ModerationService\\nlistInbox/approve/reject\\nduplicates/groups\\nverifySolution/createViolation" as moderation_service
+  rectangle "CitizenTrackingService\\nlistMyComplaints\\n(minimizado, sin PII)" as tracking_service
+  rectangle "TechnicalService\\nlistAssigned/startProcess\\nsubmitSolution/addSolutionEvidence" as technical_service
+}
+
+' ── Capa 6: Repositorios (SQL) ─────────────────────────────────────
+package "Repositories (Acceso a Datos)" as layer_repositories #FFEBEE {
+  rectangle "users.repository.js\nfindByIdentity\\nfindSessionData\\nfindCitizenProfile\\ncreateCitizenWithIdentity\\nresolveExpiredSuspension" as users_repo
+  rectangle "complaints.repository.js\\nwithComplaintLock (FOR UPDATE)\\ncreate/update/softDelete\\nsetStatusAndHistory\\nformalizeLocked/sweepExpired" as complaints_repo
+  rectangle "catalogs.repository.js\\nfindActiveCategories\\nfindActiveMunicipalUnits" as catalogs_repo
+  rectangle "media.repository.js\\ninsertEvidenceWithJob\\nlistEvidence/softDeleteEvidence\\ncountByType/markFailed" as media_repo
+  rectangle "moderation.repository.js\\nfindPendingReview/suggestions\\nduplicateCandidates (ST_DWithin)\\napprove/reject atomic\\nviolations/suspensions" as moderation_repo
+  rectangle "citizen-complaints.repository.js\\nfindOwnComplaints (LATERAL)\\ncountOwnComplaints" as citizen_complaints_repo
+  rectangle "technical.repository.js\\nfindActiveUnitMemberships\\nfindAssignedComplaints\\ninsertComplaintSolution" as technical_repo
+}
+
+' ── Capa 7: Base de Datos ───────────────────────────────────────────
+database "PostgreSQL 15+ / PostGIS\npg Pool (max: 10)" as db {
+}
+
+' ── Flujo de una petición (flechas verticales) ───────────────────────
+layer_routes -down-> layer_middleware : " Todas las rutas pasan\n por requireAuth + RBAC"
+layer_middleware -down-> layer_validators : " Zod valida req.body\\n antes del controlador"
+layer_validators -down-> layer_controllers : " req.validatedBody\\n ya normalizado"
+layer_controllers -down-> layer_services : " Orquestación de reglas\\n de negocio"
+layer_services -down-> layer_repositories : " SQL parametrizado\\n + transacciones"
+layer_repositories -down-> db : " pg Pool\\n(connection)"
+
+' ── Detalle de la cadena para POST /complaints ──────────────────────
+note right of layer_middleware
+  Cadena típica:
+  1. requireAuth (resuelve usuario)
+  2. csrfOrigin (verifica Origin)
+  3. validateBody (Zod)
+  4. asyncHandler → controller
+  5. errorHandler (si falla algo)
+end note
+
+note left of layer_services
+  Patrón de inyección:
+  createApp({ db, config, google,
+  sessionService, oauthStateService,
+  complaintsService, ... })
+  
+  Las pruebas inyectan dobles
+  (fakeGoogle, baseCaida, etc.)
+end note
+
+note right of layer_repositories
+  Transacciones atómicas:
+  - db.transaction(fn)
+  - SELECT ... FOR UPDATE
+  - BEGIN/COMMIT/ROLLBACK
+  - SKIP LOCKED en sweeps
+end note
+
+@enduml

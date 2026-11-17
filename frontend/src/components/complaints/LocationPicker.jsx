@@ -2,17 +2,29 @@ import { useEffect, useRef, useState } from 'react'
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import markerIconUrl from 'leaflet/dist/images/marker-icon.png'
-import markerIcon2xUrl from 'leaflet/dist/images/marker-icon-2x.png'
-import markerShadowUrl from 'leaflet/dist/images/marker-shadow.png'
 import { Crosshair, MapPin, TriangleAlert } from 'lucide-react'
 import { CERCADO_BOUNDS, COCHABAMBA_CENTER, isWithinCercado } from '../../lib/constants.js'
 
-// Los assets por defecto de Leaflet no resuelven con bundlers: se fijan aqui.
-L.Icon.Default.mergeOptions({
-  iconUrl: markerIconUrl,
-  iconRetinaUrl: markerIcon2xUrl,
-  shadowUrl: markerShadowUrl,
+// Icono SVG inline (evita el problema de assets del bundler con L.Icon.Default).
+const MAP_PIN_SVG = `
+  <svg width="28" height="40" viewBox="0 0 28 40" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.3"/>
+      </filter>
+    </defs>
+    <path d="M14 0C6.3 0 0 6.3 0 14c0 10.5 14 26 14 26s14-15.5 14-26C28 6.3 21.7 0 14 0z"
+      fill="#1E3A8A" filter="url(#shadow)"/>
+    <circle cx="14" cy="13" r="5" fill="white"/>
+  </svg>
+`
+
+const PIN_ICON = L.divIcon({
+  className: 'leaflet-pin-icon',
+  html: MAP_PIN_SVG,
+  iconSize: [28, 40],
+  iconAnchor: [14, 40],
+  popupAnchor: [0, -40],
 })
 
 const CERCADO_RECTANGLE = [
@@ -47,24 +59,46 @@ function MapFlyer({ target }) {
  *
  * - Centrado en Cochabamba; maxBounds estrictos de la Provincia Cercado que
  *   impiden arrastrar el pin/la vista a municipios colindantes.
- * - Pin arrastrable y click para mover; Plus Code y coordenadas informan al
- *   formulario via onChange.
+ * - Pin arrastrable (icono SVG inline, sin assets del bundler) y click para
+ *   mover; Plus Code y coordenadas informan al formulario via onChange.
  * - "Obtener mi ubicacion" con la Geolocation API del navegador: si la
  *   posicion queda fuera de Cercado se advierte y NO se mueve el pin.
+ * - flyNonce: cuando cambia, vuela el mapa a la posicion actual (se usa
+ *   cuando el usuario edita coordenadas o Plus Code manualmente en el form).
  */
-export function LocationPicker({ value, onChange }) {
+export function LocationPicker({ value, onChange, flyNonce = 0 }) {
   const [geoWarning, setGeoWarning] = useState(null)
   const [locating, setLocating] = useState(false)
   const [flyTarget, setFlyTarget] = useState(null)
   const nonce = useRef(0)
+  const latestPosition = useRef(null)
 
   const position = value ? [value.latitude, value.longitude] : null
+
+  // Ref de "ultima posicion" para que el efecto de flyNonce no dependa de value.
+  useEffect(() => {
+    latestPosition.current = value
+  }, [value])
 
   const pick = ({ latitude, longitude, source }) => {
     if (!isWithinCercado(latitude, longitude)) return
     setGeoWarning(null)
     onChange({ latitude, longitude, source })
   }
+
+  // Cuando el formulario edita coordenadas/PlusCode manualmente (flyNonce
+  // incrementa), volar el mapa a la posicion actual del pin. Usa un ref para
+  // la posicion: no re-vuela cuando el pin se mueve por click/drag.
+  useEffect(() => {
+    if (flyNonce > 0 && latestPosition.current) {
+      nonce.current += 1
+      setFlyTarget({
+        latitude: latestPosition.current.latitude,
+        longitude: latestPosition.current.longitude,
+        nonce: nonce.current,
+      })
+    }
+  }, [flyNonce])
 
   const requestGeolocation = () => {
     if (!navigator.geolocation) {
@@ -132,6 +166,7 @@ export function LocationPicker({ value, onChange }) {
           {position && (
             <Marker
               position={position}
+              icon={PIN_ICON}
               draggable
               autoPan
               eventHandlers={{

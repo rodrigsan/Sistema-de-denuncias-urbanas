@@ -62,9 +62,15 @@ export const AuthProvider = ({ children }) => {
   }, [])
 
   const logout = useCallback(async () => {
-    await apiFetch('/auth/logout', { method: 'POST' })
-    setUser(null)
-    setProfile(null)
+    try {
+      const response = await apiFetch('/auth/logout', { method: 'POST' })
+      if (!response.ok) {
+        throw new Error(apiErrorMessage(response.data))
+      }
+    } finally {
+      setUser(null)
+      setProfile(null)
+    }
   }, [])
 
   const value = useMemo(

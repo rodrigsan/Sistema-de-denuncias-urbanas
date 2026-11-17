@@ -41,9 +41,13 @@ export function ComplaintDetailPage() {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [locationError, setLocationError] = useState(null)
 
-  const [pendingEvidence, setPendingEvidence] = useState(location.state?.pendingEvidence ?? [])
+  // Evidencias persistidas en backend (inmutables, fuente de verdad)
+  const [originalEvidence, setOriginalEvidence] = useState([])
+  // Evidencias nuevas seleccionadas localmente (transitorias, solo edición)
   const [photoExtra, setPhotoExtra] = useState([])
   const [videoExtra, setVideoExtra] = useState([])
+  // Evidencias pendientes de la navegación state (provenientes de NewComplaintPage)
+  const [pendingEvidence, setPendingEvidence] = useState([])
 
   const load = useCallback(async () => {
     const response = await apiFetch(`/complaints/${id}`)
@@ -63,6 +67,22 @@ export function ComplaintDetailPage() {
     // eslint-disable-next-line react/set-state-in-effect -- carga de datos del modulo
     void load()
   }, [load])
+
+  // Sincronizar evidencia original al cargar la denuncia.
+  // Esto asegura que tengamos el estado base para restaurar al cancelar.
+  useEffect(() => {
+    if (complaint) {
+      setOriginalEvidence(complaint.evidence ?? [])
+    }
+  }, [complaint])
+
+  // Cargar pendingEvidence desde location.state al entrar desde NewComplaintPage.
+  // Esto conserva las evidencias transitorias seleccionadas durante la creación.
+  useEffect(() => {
+    if (complaint && location.state.pendingEvidence) {
+      setPendingEvidence(location.state.pendingEvidence)
+    }
+  }, [complaint])
 
   const inGrace = complaint?.status === 'GRACE_PERIOD'
 
@@ -114,6 +134,11 @@ export function ComplaintDetailPage() {
     if (response.ok) {
       setComplaint(response.data)
       setEditing(false)
+      // Restituimos la evidencia original del backend; descartamos los archivos nuevos.
+      setPhotoExtra([])
+      setVideoExtra([])
+      // NO limpiamos pendingEvidence aquí: se conserva para evidencias iniciales
+      // de NewComplaintPage que aún no se han persistido.
     } else {
       setActionError(apiErrorMessage(response.data))
     }
@@ -165,12 +190,14 @@ export function ComplaintDetailPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">
-      <Link
-        to="/mis-denuncias"
-        className="text-xs font-semibold text-marine-700 transition-colors hover:text-marine-950"
-      >
-        ← Volver a mis denuncias
-      </Link>
+      {!editing && (
+        <Link
+          to="/mis-denuncias"
+          className="text-xs font-semibold text-marine-700 transition-colors hover:text-marine-950"
+        >
+          ← Volver a mis denuncias
+        </Link>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -192,9 +219,8 @@ export function ComplaintDetailPage() {
       {inGrace && (
         <div className="mt-4 space-y-4">
           <GraceCountdown
-            key={`${complaint.grace.remainingSeconds}-${complaint.grace.state}`}
             grace={complaint.grace}
-            onExpire={() => void load()}
+            onExpire={load}
           />
 
           {!editing && (
@@ -228,18 +254,27 @@ export function ComplaintDetailPage() {
               <div className="mt-3 flex gap-3">
                 <button
                   type="button"
-                  onClick={() => void removeComplaint()}
+                  onClick={() => {
+                    // Cancela la sesión de edición: el backend reanuda el contador con tiempo restante
+                    void cancelEdition()
+                    setConfirmingDelete(false)
+                  }}
+                  disabled={submitting}
+                  className="rounded-lg bg-state-caution px-4 py-2 text-sm font-bold text-state-caution transition-colors hover:bg-state-caution/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-state-caution disabled:cursor-wait disabled:opacity-60"
+                >
+                  {submitting ? 'Pausando…' : 'Conservar'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Confirma la eliminación: ejecuta borrado sin reanudar contador antes
+                    void removeComplaint()
+                    setConfirmingDelete(false)
+                  }}
                   disabled={submitting}
                   className="rounded-lg bg-state-danger px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-state-danger disabled:cursor-wait disabled:opacity-60"
                 >
                   {submitting ? 'Eliminando…' : 'Sí, eliminar'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmingDelete(false)}
-                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-ink-soft transition-colors hover:bg-slate-100"
-                >
-                  Conservar
                 </button>
               </div>
             </div>
@@ -266,6 +301,44 @@ export function ComplaintDetailPage() {
             onLocationInteract={() => setLocationError(null)}
             onSubmit={(payload) => void saveEdition(payload)}
             onCancel={() => void cancelEdition()}
+            evidenceSlot={
+              <div className="space-y-4">
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-ink">
+                  <Plus size={12} className="text-marine-700" aria-hidden="true" />
+                  Agregar más evidencias (dentro de la gracia)
+                </p>
+                <div>
+                  <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-ink">
+                    <ImageIcon size={13} className="text-marine-700" aria-hidden="true" />
+                    Fotografías (hasta 3 en total)
+                  </p>
+                  <EvidenceUploader
+                    kind="IMAGE"
+                    files={photoExtra}
+                    onChange={setPhotoExtra}
+                    existingCounts={{
+                      images: (originalEvidence ?? []).filter((item) => item.mediaType === 'IMAGE').length,
+                      videos: 0,
+                    }}
+                  />
+                </div>
+                <div>
+                  <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-ink">
+                    <FileVideo size={13} className="text-marine-700" aria-hidden="true" />
+                    Video (1 en total)
+                  </p>
+                  <EvidenceUploader
+                    kind="VIDEO"
+                    files={videoExtra}
+                    onChange={setVideoExtra}
+                    existingCounts={{
+                      images: 0,
+                      videos: (originalEvidence ?? []).filter((item) => item.mediaType === 'VIDEO').length,
+                    }}
+                  />
+                </div>
+              </div>
+            }
           />
         ) : (
           <div className="space-y-5">
@@ -292,57 +365,11 @@ export function ComplaintDetailPage() {
             <EvidenceUploadPanel
               complaintId={complaint.id}
               evidence={complaint.evidence ?? []}
-              pending={[
-                ...pendingEvidence,
-                ...photoExtra,
-                ...videoExtra,
-              ].filter(
-                (entry, index, all) =>
-                  all.findIndex((candidate) => candidate.id === entry.id) === index,
-              )}
+              pending={pendingEvidence}
               onConsumed={consumeUploaded}
               onUploaded={() => void load()}
               canDelete={inGrace}
             />
-
-            {inGrace && (
-              <div className="space-y-4">
-                <p className="flex items-center gap-1.5 text-xs font-semibold text-ink">
-                  <Plus size={12} className="text-marine-700" aria-hidden="true" />
-                  Agregar más evidencias (dentro de la gracia)
-                </p>
-                <div>
-                  <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-ink">
-                    <ImageIcon size={13} className="text-marine-700" aria-hidden="true" />
-                    Fotografías (hasta 3 en total)
-                  </p>
-                  <EvidenceUploader
-                    kind="IMAGE"
-                    files={photoExtra}
-                    onChange={setPhotoExtra}
-                    existingCounts={{
-                      images: (complaint.evidence ?? []).filter((item) => item.mediaType === 'IMAGE').length,
-                      videos: 0,
-                    }}
-                  />
-                </div>
-                <div>
-                  <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-ink">
-                    <FileVideo size={13} className="text-marine-700" aria-hidden="true" />
-                    Video (1 en total)
-                  </p>
-                  <EvidenceUploader
-                    kind="VIDEO"
-                    files={videoExtra}
-                    onChange={setVideoExtra}
-                    existingCounts={{
-                      images: 0,
-                      videos: (complaint.evidence ?? []).filter((item) => item.mediaType === 'VIDEO').length,
-                    }}
-                  />
-                </div>
-              </div>
-            )}
           </div>
         )}
       </div>

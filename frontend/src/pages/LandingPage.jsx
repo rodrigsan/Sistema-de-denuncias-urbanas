@@ -18,6 +18,7 @@ import {
 import { useAuth } from '../hooks/useAuth.js'
 import { SectionHeading } from '../components/ui/SectionHeading.jsx'
 import { GoogleIcon } from '../components/brand/GoogleIcon.jsx'
+import { CreateComplaintAction } from '../components/complaints/CreateComplaintAction.jsx'
 
 /* Categorias urbanas (RF-13): textos del catalogo sembrado en el backend. */
 const CATEGORIES = [
@@ -136,15 +137,15 @@ export function LandingPage() {
           </p>
 
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <button
-              type="button"
-              onClick={startComplaint}
+            <CreateComplaintAction
+              onAllowed={startComplaint}
+              checkCooldown={user?.userType === 'CITIZEN'}
               disabled={loading}
               className="inline-flex items-center gap-2 rounded-lg bg-white px-6 py-3.5 text-sm font-bold text-marine-950 shadow-lg transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-2 focus-visible:outline-white disabled:cursor-wait disabled:opacity-70"
             >
               <Plus size={18} aria-hidden="true" />
               {isAdminUser ? 'Ir a mi panel' : 'Crear una denuncia'}
-            </button>
+            </CreateComplaintAction>
             <a
               href="#como-funciona"
               className="rounded-lg border border-white/30 px-6 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
@@ -252,17 +253,18 @@ export function LandingPage() {
           ))}
         </ol>
 
-        <div className="mt-12 text-center">
-          <button
-            type="button"
-            onClick={startComplaint}
-            disabled={loading}
-            className="inline-flex items-center gap-2 rounded-lg bg-marine-700 px-6 py-3.5 text-sm font-bold text-white transition-colors hover:bg-marine-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-marine-950 disabled:cursor-wait disabled:opacity-70"
-          >
-            <FilePlus2 size={18} aria-hidden="true" />
-            Crear mi primera denuncia
-          </button>
-        </div>
+        {!loading && !user && (
+          <div className="mt-12 text-center">
+            <CreateComplaintAction
+              onAllowed={startComplaint}
+              disabled={loading}
+              className="inline-flex items-center gap-2 rounded-lg bg-marine-700 px-6 py-3.5 text-sm font-bold text-white transition-colors hover:bg-marine-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-marine-950 disabled:cursor-wait disabled:opacity-70"
+            >
+              <FilePlus2 size={18} aria-hidden="true" />
+              Crear mi primera denuncia
+            </CreateComplaintAction>
+          </div>
+        )}
       </section>
     </>
   )

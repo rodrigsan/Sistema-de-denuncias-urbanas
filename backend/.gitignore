@@ -13,6 +13,7 @@ npm-debug.log*
 
 # Cobertura y temporales
 coverage/
+coverage-raw/
 .nyc_output/
 dist/
 tmp/
