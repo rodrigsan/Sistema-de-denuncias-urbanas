@@ -1,4 +1,4 @@
-import { cleanup, render, screen, fireEvent } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { NewComplaintPage } from '../pages/NewComplaintPage.jsx'
@@ -23,7 +23,7 @@ describe('NewComplaintPage', () => {
     vi.clearAllMocks()
   })
 
-  it('permite salir del bloqueo por cooldown sin recargar la página', async () => {
+  it('muestra bloqueo por cooldown sin recargar la página', async () => {
     vi.mocked(apiFetch).mockResolvedValue({
       ok: true,
       data: {
@@ -42,12 +42,19 @@ describe('NewComplaintPage', () => {
       </MemoryRouter>,
     )
 
-    expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Entendido' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Recargar página' })).not.toBeInTheDocument()
+    // Verifica que se muestra el bloqueo por cooldown
+    expect(await screen.findByText('Período de espera activo')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Entendido' }))
+    // Verifica que se muestra el tiempo restante (901 segundos ≈ 16 minutos)
+    expect(await screen.findByText(/Tiempo restante: 16 min/)).toBeInTheDocument()
 
-    expect(await screen.findByTestId('my-complaints')).toBeInTheDocument()
+    // Verifica que se muestra el mensaje de espera
+    expect(await screen.findByText('Debes esperar antes de crear una nueva denuncia.')).toBeInTheDocument()
+
+    // Verifica que NO se muestra el formulario de creación (bloqueado por cooldown)
+    expect(screen.queryByRole('button', { name: 'Crear denuncia' })).not.toBeInTheDocument()
+
+    // Verifica que el componente permanece montado (no hay recarga de página)
+    expect(screen.getByText('Período de espera activo')).toBeInTheDocument()
   })
 })
