@@ -1,0 +1,105 @@
+[
+  {
+    "description": "  As a developer of the system\n  I want to verify that the health service responds correctly\n  To confirm that the API is operational",
+    "elements": [
+      {
+        "description": "",
+        "id": "health-check-of-the-api;check-the-health-endpoint-and-receive-ok-status",
+        "keyword": "Scenario",
+        "line": 6,
+        "name": "Check the health endpoint and receive ok status",
+        "steps": [
+          {
+            "result": {
+              "status": "passed",
+              "duration": 6918900
+            },
+            "keyword": "Before",
+            "hidden": true
+          },
+          {
+            "result": {
+              "status": "passed",
+              "duration": 138299
+            },
+            "arguments": [],
+            "keyword": "Given ",
+            "line": 7,
+            "name": "the API server is running",
+            "match": {
+              "location": "bdd\\step-definitions\\health.steps.js:24"
+            }
+          },
+          {
+            "result": {
+              "status": "passed",
+              "duration": 44059200
+            },
+            "arguments": [],
+            "keyword": "When ",
+            "line": 8,
+            "name": "I query the endpoint \"/api/v1/health\"",
+            "match": {
+              "location": "bdd\\step-definitions\\health.steps.js:29"
+            }
+          },
+          {
+            "result": {
+              "status": "passed",
+              "duration": 185799
+            },
+            "arguments": [],
+            "keyword": "Then ",
+            "line": 9,
+            "name": "the response code is 200",
+            "match": {
+              "location": "bdd\\step-definitions\\health.steps.js:37"
+            }
+          },
+          {
+            "result": {
+              "status": "passed",
+              "duration": 120599
+            },
+            "arguments": [],
+            "keyword": "And ",
+            "line": 10,
+            "name": "the body responds with status \"ok\"",
+            "match": {
+              "location": "bdd\\step-definitions\\health.steps.js:41"
+            }
+          },
+          {
+            "result": {
+              "status": "passed",
+              "duration": 98600
+            },
+            "arguments": [],
+            "keyword": "And ",
+            "line": 11,
+            "name": "the service name is \"denuncias-cercado-api\"",
+            "match": {
+              "location": "bdd\\step-definitions\\health.steps.js:45"
+            }
+          },
+          {
+            "result": {
+              "status": "passed",
+              "duration": 1163599
+            },
+            "keyword": "After",
+            "hidden": true
+          }
+        ],
+        "tags": [],
+        "type": "scenario"
+      }
+    ],
+    "id": "health-check-of-the-api",
+    "line": 1,
+    "keyword": "Feature",
+    "name": "Health check of the API",
+    "tags": [],
+    "uri": "bdd\\features\\health.feature"
+  }
+]
