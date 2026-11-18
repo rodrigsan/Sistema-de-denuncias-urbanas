@@ -23,10 +23,15 @@ pipeline {
 
         stage('Ejecutar pruebas BDD Cucumber') {
             steps {
-                bat '''
-                    cd backend
-                    npm run test:bdd
-                '''
+                withCredentials([
+                    string(credentialsId: 'jenkins-session-secret', variable: 'SESSION_SECRET'),
+                ]) {
+                    bat '''
+                        cd backend
+                        set DATABASE_URL=postgresql://test:test@localhost:5432/denuncias_test
+                        npm run test:bdd
+                    '''
+                }
             }
         }
 
