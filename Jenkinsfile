@@ -26,7 +26,7 @@ pipeline {
                 bat '''
                     cd frontend
                     npm ci
-                    npm test
+                    npm test -- --reporter=verbose
                 '''
             }
         }
