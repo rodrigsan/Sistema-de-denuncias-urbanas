@@ -14,6 +14,7 @@ export default {
   format: [
     'progress-bar',
     'json:bdd/reports/cucumber.json',
+    'html:bdd/reports/cucumber.html',
   ],
   name: [],
   tags: '',

@@ -3,7 +3,7 @@
 **Proyecto:** Sistema de Denuncias Ciudadanas — Municipio de Cercado, Cochabamba  
 **Objetivo:** Automatización de pruebas de calidad usando BDD, Cucumber y Jenkins  
 **Sistema operativo:** Windows 10  
-**Estado:** Etapa 2.2 — Variables de entorno resueltas y documentación creada  
+**Estado:** Etapa 2.2 — Ejecución exitosa de Jenkins y documentación actualizada  
 **Fecha:** 18 de noviembre de 2026
 
 ---
@@ -132,11 +132,43 @@ El primer escenario verifica el endpoint de salud (`GET /api/v1/health`) porque:
 - Ejecutar "Build Now".
 
 **Resultado de la ejecución:**
-- Validación de Jenkins pendiente (no se ha ejecutado Build Now exitosamente todavía debido a la falta de credenciales configuradas).
+- Validación de Jenkins completada exitosamente.
+- Commit asociado: `1cbc00d515536c60839796a4d049c1563d86276e`.
+- Mensaje del commit: "Configure Jenkins test credentials and add QA documentation."
+- Primera ejecución del pipeline: `Finished: SUCCESS`.
+- Resultado de Cucumber en Jenkins: 1 scenario (1 passed), 7 steps (7 passed).
+- Reporte `cucumber.json` archivado como artefacto del build.
 
 ---
 
-## 5. Estructura de archivos
+## 5. Resultado de la primera ejecución exitosa de Jenkins
+
+El pipeline de Jenkins se ejecutó correctamente y finalizó con estado **SUCCESS**. Esto significa que todas las etapas del pipeline completaron su ejecución sin errores y que el resultado global del build fue exitoso.
+
+**Detalle de la ejecución:**
+- Commit asociado: `1cbc00d515536c60839796a4d049c1563d86276e`
+- Mensaje del commit: "Configure Jenkins test credentials and add QA documentation."
+- Estado final: `Finished: SUCCESS`
+
+**Etapas ejecutadas por Jenkins y lo que comprobó cada una:**
+
+| Etapa | Qué verificó |
+|-------|--------------|
+| **Checkout** | Descarga correcta del código fuente desde el repositorio GitHub (`https://github.com/rodrigsan/Sistema-de-denuncias-urbanas`) en la rama configurada. |
+| **Instalación de dependencias Backend** | Ejecución correcta de `npm ci` dentro de `backend/`, instalando todas las dependencias listadas en `package-lock.json`, incluyendo `@cucumber/cucumber` y `@cucumber/pretty-formatter`. |
+| **Ejecución BDD Cucumber** | Ejecución de `npm run test:bdd` dentro de `backend/`. Inyectó `SESSION_SECRET` desde credencial de Jenkins y estableció `DATABASE_URL` como valor de prueba. Cucumber leyó y ejecutó el escenario Gherkin correctamente. |
+| **Archivado de reportes** | Archivo `backend/bdd/reports/cucumber.json` guardado como artefacto del build para consulta posterior. |
+
+**Resultado de Cucumber en Jenkins:**
+- 1 scenario (1 passed)
+- 7 steps (7 passed)
+- Reporte JSON generado en `backend/bdd/reports/cucumber.json` con estado `passed` en todos los pasos.
+
+El estado **SUCCESS** confirma que el pipeline completo funcionó de extremo a extremo: el código se descargó, las dependencias se instalaron, las pruebas BDD se ejecutaron y el reporte se archivó sin errores.
+
+---
+
+## 6. Estructura de archivos
 
 ```
 proyecto_denuncias/
@@ -164,7 +196,7 @@ proyecto_denuncias/
 
 ---
 
-## 6. Configuración del pipeline
+## 7. Configuración del pipeline
 
 Cada etapa del `Jenkinsfile`:
 
@@ -173,34 +205,63 @@ Cada etapa del `Jenkinsfile`:
 | **Checkout** | Descarga el código fuente desde el repositorio GitHub configurado. |
 | **Instalación de dependencias Backend** | Ejecuta `npm ci` dentro de `backend/` para instalar dependencias de forma reproducible usando `package-lock.json`. |
 | **Ejecución BDD Cucumber** | Ejecuta `npm run test:bdd` dentro de `backend/`. Inyecta `SESSION_SECRET` desde credencial de Jenkins y establece `DATABASE_URL` como valor de prueba. |
-| **Archivado de reportes** | Guarda `backend/bdd/reports/cucumber.json` como artefacto del build para consulta posterior. |
+| **Archivado de reportes** | Guarda `backend/bdd/reports/cucumber.json` y `backend/bdd/reports/cucumber.html` como artefactos del build para consulta posterior. |
 | **Acciones posteriores** | En caso de fallo, imprime mensaje indicando que se revise la etapa fallida. Siempre imprime mensaje de finalización. |
 
 ---
 
-## 7. Problemas encontrados y soluciones
+## 8. Problemas encontrados y soluciones
 
 | Problema | Causa | Solución aplicada | Estado |
 |----------|-------|-------------------|--------|
-| Cucumber no inicia en Jenkins | Faltan variables `DATABASE_URL` y `SESSION_SECRET` requeridas por `loadEnv()` en `env.js` | Añadir `withCredentials` para `SESSION_SECRET` y `set DATABASE_URL=...` como valor de prueba en el paso `bat` | Pendiente de validación en Jenkins |
+| Cucumber no inicia en Jenkins | Faltan variables `DATABASE_URL` y `SESSION_SECRET` requeridas por `loadEnv()` en `env.js` | Añadir `withCredentials` para `SESSION_SECRET` y `set DATABASE_URL=...` como valor de prueba en el paso `bat` | Resuelto (Jenkins ejecutó SUCCESS) |
 | Aviso de Git durante ejecución | El repositorio puede mostrar advertencias de configuración de Git (ej. user.email/user.name) | Git funciona correctamente para checkout; las advertencias no impiden la ejecución | Informativo, no bloqueante |
 
 ---
 
-## 8. Evidencias
+## 9. Evidencias
 
 | Evidencia | Detalle |
 |-----------|---------|
 | Comando ejecutado localmente | `npm run test:bdd` desde `backend/` |
 | Resultado de Cucumber local | 1 scenario passed, 7 steps passed |
 | Ruta del reporte JSON | `backend/bdd/reports/cucumber.json` |
+| Ruta del reporte HTML | `backend/bdd/reports/cucumber.html` |
 | Contenido del reporte JSON | Estado `passed` en todos los pasos, con duraciones y ubicaciones de step definitions |
-| Resultado de Jenkins | Pendiente de ejecución (Build Now no ejecutado todavía) |
-| Evidencias pendientes | Captura de consola de Jenkins, captura del reporte HTML generado, confirmación de SUCCESS en pipeline |
+| Contenido del reporte HTML | Reporte HTML de Cucumber con detalles de ejecución, generado junto al JSON en la misma corrida |
+| Resultado de Jenkins | `Finished: SUCCESS` (Build Now ejecutado correctamente en la primera ejecución) |
+| Evidencias pendientes | Captura de consola de Jenkins, captura del reporte HTML generado |
+
+### Formatos de reporte generados
+
+Se generan dos reportes simultáneamente en cada ejecución de Cucumber:
+
+| Formato | Ruta | Propósito |
+|---------|------|-----------|
+| **JSON** | `backend/bdd/reports/cucumber.json` | Estructura de datos legible por máquina. Contiene el resultado de cada escenario y paso con duraciones y ubicaciones de step definitions. Útil para integración con herramientas de CI y procesamiento automático. |
+| **HTML** | `backend/bdd/reports/cucumber.html` | Reporte visual legible por humanos. Muestra los resultados de ejecución de forma amigable para revisión manual. Generado en la misma corrida que el JSON. |
+
+**Archivado en Jenkins:** Ambos archivos se conservan como artefactos del build mediante `archiveArtifacts` en el stage 'Archivar reportes Cucumber' del Jenkinsfile. Están disponibles para descarga desde la interfaz de Jenkins.
+
+**Nota:** El reporte HTML se entrega como archivo artefacto descargable. Para visualizarlo directamente dentro de la interfaz de Jenkins (sin descarga) sería necesario el plugin **HTML Publisher**, que no está instalado ni configurado en este momento. La descarga manual del archivo `.html` desde los artefactos de Jenkins permite abrirlo en cualquier navegador.
 
 ---
 
-## 9. Glosario
+## 10. Diferencia entre prueba BDD, unitaria e integración
+
+Estos tres tipos de pruebas tienen propósitos distintos y no son equivalentes:
+
+| Tipo de prueba | Qué valida | Alcance | Ejemplo en este proyecto |
+|----------------|------------|---------|--------------------------|
+| **Prueba unitaria** | Una unidad aislada de código (función, método, clase) | Muy reducido, sin dependencias externas | Probar que una función de utilidad formatea correctamente una fecha. |
+| **Prueba de integración** | La interacción entre varios componentes o módulos | Medio, puede incluir base de datos o servicios reales | Probar que el endpoint `/api/v1/health` responde correctamente cuando el servidor Express está iniciado. |
+| **Prueba BDD** | El comportamiento del sistema desde la perspectiva del usuario, descrito en lenguaje natural | Alto, describe flujos completos de negocio | Probar que un moderador puede aprobar una denuncia y que esta cambia su estado a "Asignada". |
+
+**No son equivalentes:** Una prueba unitaria no reemplaza a una prueba de integración, y ninguna de las dos reemplaza a una prueba BDD. Cada una detecta problemas en diferentes niveles del sistema y se complementan entre sí.
+
+---
+
+## 11. Glosario
 
 | Término | Definición |
 |---------|------------|
@@ -220,20 +281,137 @@ Cada etapa del `Jenkinsfile`:
 
 ---
 
-## 10. Próximas actividades
+## 12. Próximas actividades
 
 ### Completadas
 - [x] Etapa 1: Configuración inicial de Cucumber con escenario de health check.
 - [x] Etapa 2: Preparación de Jenkins con Jenkinsfile compatible con Windows 10.
 - [x] Etapa 2.1: Diagnóstico de variables de entorno (`DATABASE_URL`, `SESSION_SECRET`).
 - [x] Etapa 2.2: Solución de variables de entorno en Jenkinsfile y creación de esta bitácora.
+- [x] Ejecutar "Build Now" en Jenkins y validar SUCCESS del pipeline.
+- [x] Demostración controlada de fallo de una prueba BDD (cambio temporal de expectativa HTTP 200 a 404).
+- [x] Restaurar y volver a ejecutar el escenario health esperando HTTP 200; confirmar que vuelve a pasar.
 
 ### Planificadas (pendientes de aprobación)
-- [ ] Ejecutar "Build Now" en Jenkins y validar SUCCESS del pipeline.
 - [ ] Agregar más escenarios BDD (creación de denuncias, moderación, reportes históricos, control de acceso).
 - [ ] Implementar step definitions para los nuevos escenarios.
 - [ ] Configurar reporte HTML de Cucumber para publicación en Jenkins.
 - [ ] Considerar Playwright para pruebas de navegador en una segunda iteración.
+
+---
+
+## 13. Experimento controlado "Hazlo fallar"
+
+Se realizó una demostración educativa de fallo intencional en una prueba BDD para validar que el mecanismo de aserción detecta correctamente discrepancias entre el resultado esperado y el real.
+
+**Escenario utilizado:** Check the health endpoint and receive ok status.
+
+**Archivo Gherkin:** `backend/bdd/features/health.feature`.
+
+**Archivo de implementación:** `backend/bdd/step-definitions/health.steps.js`.
+
+**Valor esperado original:** HTTP 200.
+
+**Valor esperado modificado temporalmente:** HTTP 404.
+
+**Respuesta real del servidor:** HTTP 200 (sin cambios en el servidor).
+
+**Resultado observado:**
+```
+200 !== 404
+1 scenario (1 failed)
+7 steps (4 passed, 2 skipped, 1 failed)
+```
+
+**Mecanismo de detección:** La prueba falló mediante `assert.equal(response.status, statusCode)` en el step definition, comparando `response.status` (200, valor real del servidor) contra `statusCode` (404, valor esperado modificado en el escenario Gherkin).
+
+**Conclusión del experimento:** La prueba BDD detectó correctamente la discrepancia. El servidor no fue modificado; el cambio se realizó únicamente en la expectativa del escenario Gherkin.
+
+**Aprendizaje:** Este experimento confirma que una prueba BDD actúa como un contrato ejecutable: si la expectativa definida en el archivo `.feature` no coincide con el comportamiento real del sistema, la prueba falla de forma visible y determinista. Esto valida que Cucumber está funcionando correctamente como herramienta de verificación de comportamiento.
+
+**Restauración del escenario:** Completada. El escenario `health.feature` fue restaurado a `Then the response code is 200`. La ejecución posterior de Cucumber devolvió:
+
+```
+1 scenario (1 passed)
+7 steps (7 passed)
+```
+
+Esto confirma que, una vez restaurada la expectativa original (HTTP 200), el escenario vuelve a pasar correctamente, validando que el servidor mantiene su comportamiento real y que el mecanismo de aserción de Cucumber funciona en ambos sentidos (detecta fallos cuando hay discrepancia y pasa cuando hay coincidencia).
+
+---
+
+## 14. Estado de avance de las cinco fases del proyecto
+
+**FASE 1. Diagnóstico y preparación:**
+- Revisión de los fallos de pruebas existentes: realizada en auditorías anteriores.
+- Verificación de scripts npm: realizada.
+- Revisión de configuración Git: realizada.
+- Preparación de una base de datos exclusiva para testing: pendiente.
+**Estado general: parcial.**
+
+**FASE 2. BDD con Cucumber:**
+- Instalación de Cucumber para JavaScript: completada.
+- Creación de archivos `.feature`: completada para el escenario inicial.
+- Implementación de Step Definitions: completada para el escenario inicial.
+- Ejecución y verificación: completada, incluyendo ejecución exitosa y fallo intencional local.
+**Estado general: implementación inicial completada.** Aclarar que solo existe un escenario funcional y que falta ampliar la cobertura BDD.
+
+**FASE 3. Automatización con Playwright:**
+- Navegación automatizada: pendiente.
+- Simulación de acciones de ciudadano: pendiente.
+- Simulación de acciones de moderador: pendiente.
+- Verificación de resultados en la interfaz: pendiente.
+**Estado general: pendiente.** Playwright todavía no está implementado.
+
+**FASE 4. Integración con Jenkins:**
+- Jenkinsfile creado: completado.
+- Repositorio GitHub configurado: completado.
+- Instalación automática de dependencias backend: completada.
+- Ejecución automatizada de BDD: completada.
+- Ejecución automatizada de pruebas generales de backend y frontend: pendiente.
+**Estado general: parcial.**
+
+**FASE 5. Reportes y presentación:**
+- Reporte JSON de Cucumber: generado.
+- Archivado del JSON en Jenkins: completado.
+- Demostración local de ejecución exitosa y fallida: realizada.
+- Reporte HTML: pendiente.
+- Publicación del reporte HTML en Jenkins: pendiente.
+- Evidencias y preparación para presentación: parcial.
+
+---
+
+## 15. Primera demostración esperada - elementos verificados
+
+1. **GitHub entrega el código a Jenkins:** completado.
+2. **Jenkins inicia el pipeline:** completado.
+3. **Cucumber ejecuta escenarios Gherkin:** completado.
+4. **Se observan resultados exitosos y fallidos:** demostrado localmente (ejecución exitosa con SUCCESS y fallo intencional con HTTP 404).
+5. **Reporte HTML consultable desde Jenkins:** pendiente.
+
+---
+
+## 16. Hoja de ruta priorizada
+
+**Prioridad 1:**
+- Restaurar y volver a ejecutar el escenario health esperando HTTP 200.
+- Confirmar que vuelve a pasar.
+- Documentar el experimento completo.
+
+**Prioridad 2:**
+- Inspeccionar rutas y autenticación reales del backend.
+- Diseñar uno o dos escenarios BDD adicionales de bajo riesgo.
+- No inventar endpoints ni utilizar datos de producción.
+
+**Prioridad 3:**
+- Generar un reporte HTML de Cucumber.
+- Publicarlo como artefacto consultable en Jenkins.
+
+**Prioridad 4:**
+- Evaluar la incorporación de Playwright para automatizar la interfaz.
+
+**Prioridad 5:**
+- Evaluar la ejecución de pruebas generales de backend y frontend en Jenkins, teniendo en cuenta los fallos y limitaciones ya identificados.
 
 ---
 
@@ -243,4 +421,4 @@ Esta bitácora (`docs/QA-BDD-JENKINS.md`) es el documento oficial de la automati
 
 ---
 
-**Estado actual:** Etapa 2.2 completada. Jenkinsfile modificado y documentación creada. Pendiente: ejecutar Build Now en Jenkins para validar SUCCESS del pipeline.
+**Estado actual:** Etapa 2.2 completada. Jenkins ejecutado con SUCCESS (1 scenario, 7 steps aprobados). Reporte JSON archivado. Experimento de fallo controlado documentado. Hoja de ruta priorizada definida (prioridades 1 a 5). Bitácora actualizada.

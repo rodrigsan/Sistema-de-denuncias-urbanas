@@ -35,9 +35,9 @@ pipeline {
             }
         }
 
-        stage('Archivar reporte Cucumber') {
+        stage('Archivar reportes Cucumber') {
             steps {
-                archiveArtifacts artifacts: 'backend/bdd/reports/cucumber.json', fingerprint: true
+                archiveArtifacts artifacts: 'backend/bdd/reports/cucumber.json, backend/bdd/reports/cucumber.html', fingerprint: true
             }
         }
     }
