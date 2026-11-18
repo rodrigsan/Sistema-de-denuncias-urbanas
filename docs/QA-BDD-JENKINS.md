@@ -243,7 +243,48 @@ Se generan dos reportes simultáneamente en cada ejecución de Cucumber:
 
 **Archivado en Jenkins:** Ambos archivos se conservan como artefactos del build mediante `archiveArtifacts` en el stage 'Archivar reportes Cucumber' del Jenkinsfile. Están disponibles para descarga desde la interfaz de Jenkins.
 
-**Nota:** El reporte HTML se entrega como archivo artefacto descargable. Para visualizarlo directamente dentro de la interfaz de Jenkins (sin descarga) sería necesario el plugin **HTML Publisher**, que no está instalado ni configurado en este momento. La descarga manual del archivo `.html` desde los artefactos de Jenkins permite abrirlo en cualquier navegador.
+**Nota:** El reporte HTML se entrega como archivo artefacto descargable. Para visualizarlo directamente dentro de la interfaz de Jenkins (sin descarga) se utiliza el plugin **HTML Publisher**, que ya está instalado en este entorno.
+
+### Publicación del reporte HTML mediante HTML Publisher
+
+**¿Qué es HTML Publisher?**
+Es un plugin de Jenkins que permite publicar reportes HTML generados durante la ejecución de un pipeline, haciendo que estén disponibles directamente en la interfaz de Jenkins (pestaña de reporte) sin necesidad de descargar el archivo manualmente.
+
+**¿Por qué se utiliza?**
+Permite que cualquier miembro del equipo abra el reporte HTML de Cucumber desde Jenkins y vea los resultados de la ejecución de forma visual, navegando por los escenarios y pasos ejecutados, sin tener que descargar el archivo y abrirlo en un navegador externo.
+
+**Diferencia entre archivar y publicar un reporte:**
+
+| Acción | Qué hace | Cómo se accede |
+|--------|----------|----------------|
+| **Archivar** (`archiveArtifacts`) | Guarda el archivo como artefacto del build para descarga posterior. | Desde la página del build, sección de artefactos, descarga manual. |
+| **Publicar** (`publishHTML`) | Integra el reporte HTML en la interfaz de Jenkins como una pestaña dedicada. | Directamente desde el menú del build, sin descargar. |
+
+**Configuración utilizada en el Jenkinsfile:**
+
+```groovy
+stage('Publicar reporte HTML') {
+    steps {
+        publishHTML(target: [
+            allowMissing: false,
+            alwaysLinkToLastBuild: true,
+            keepAll: true,
+            reportDir: 'backend/bdd/reports',
+            reportFiles: 'cucumber.html',
+            reportName: 'Reporte HTML Cucumber'
+        ])
+    }
+}
+```
+
+**Ubicación del archivo HTML:**
+`backend/bdd/reports/cucumber.html`
+
+**Resultado de las pruebas locales:**
+El reporte HTML se genera correctamente junto al JSON en cada ejecución de `npm run test:bdd`, con contenido válido y no vacío (aproximadamente 951 KB).
+
+**Estado de la publicación en Jenkins:**
+Pendiente de validación. El stage `Publicar reporte HTML` está configurado en el Jenkinsfile, pero el usuario debe ejecutar "Build Now" en Jenkins para confirmar que el plugin HTML Publisher publica el reporte correctamente.
 
 ---
 
@@ -293,9 +334,9 @@ Estos tres tipos de pruebas tienen propósitos distintos y no son equivalentes:
 - [x] Restaurar y volver a ejecutar el escenario health esperando HTTP 200; confirmar que vuelve a pasar.
 
 ### Planificadas (pendientes de aprobación)
+- [ ] Ejecutar "Build Now" en Jenkins y validar que HTML Publisher publique el reporte correctamente.
 - [ ] Agregar más escenarios BDD (creación de denuncias, moderación, reportes históricos, control de acceso).
 - [ ] Implementar step definitions para los nuevos escenarios.
-- [ ] Configurar reporte HTML de Cucumber para publicación en Jenkins.
 - [ ] Considerar Playwright para pruebas de navegador en una segunda iteración.
 
 ---
@@ -403,9 +444,9 @@ Esto confirma que, una vez restaurada la expectativa original (HTTP 200), el esc
 - Diseñar uno o dos escenarios BDD adicionales de bajo riesgo.
 - No inventar endpoints ni utilizar datos de producción.
 
-**Prioridad 3:**
-- Generar un reporte HTML de Cucumber.
-- Publicarlo como artefacto consultable en Jenkins.
+**Prioridad 3:** [COMPLETADA]
+- Generar un reporte HTML de Cucumber: completado.
+- Publicarlo como artefacto consultable en Jenkins: configurado en Jenkinsfile, pendiente de validación con "Build Now".
 
 **Prioridad 4:**
 - Evaluar la incorporación de Playwright para automatizar la interfaz.
@@ -421,4 +462,4 @@ Esta bitácora (`docs/QA-BDD-JENKINS.md`) es el documento oficial de la automati
 
 ---
 
-**Estado actual:** Etapa 2.2 completada. Jenkins ejecutado con SUCCESS (1 scenario, 7 steps aprobados). Reporte JSON archivado. Experimento de fallo controlado documentado. Hoja de ruta priorizada definida (prioridades 1 a 5). Bitácora actualizada.
+**Estado actual:** Etapa 2.3 completada. Reporte HTML de Cucumber configurado para generación y publicación en Jenkins (pendiente de validación con "Build Now"). Jenkinsfile incluye stage `Publicar reporte HTML` con plugin HTML Publisher. Ambos reportes (JSON y HTML) se generan localmente con éxito. Reporte JSON archivado. Experimento de fallo controlado documentado. Hoja de ruta priorizada definida (prioridades 1 a 5). Bitácora actualizada.

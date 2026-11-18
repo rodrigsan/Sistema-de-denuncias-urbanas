@@ -40,6 +40,19 @@ pipeline {
                 archiveArtifacts artifacts: 'backend/bdd/reports/cucumber.json, backend/bdd/reports/cucumber.html', fingerprint: true
             }
         }
+
+        stage('Publicar reporte HTML') {
+            steps {
+                publishHTML(target: [
+                    allowMissing: false,
+                    alwaysLinkToLastBuild: true,
+                    keepAll: true,
+                    reportDir: 'backend/bdd/reports',
+                    reportFiles: 'cucumber.html',
+                    reportName: 'Reporte HTML Cucumber'
+                ])
+            }
+        }
     }
 
     post {
