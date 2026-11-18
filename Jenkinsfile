@@ -21,6 +21,16 @@ pipeline {
             }
         }
 
+        stage('Frontend - Vitest') {
+            steps {
+                bat '''
+                    cd frontend
+                    npm ci
+                    npm test
+                '''
+            }
+        }
+
         stage('Ejecutar pruebas BDD Cucumber') {
             steps {
                 withCredentials([
