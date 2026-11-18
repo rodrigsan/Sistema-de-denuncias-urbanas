@@ -24,9 +24,7 @@ pipeline {
         stage('Frontend - Vitest') {
             steps {
                 bat '''
-                    cd frontend
-                    npm ci
-                    npm test -- --reporter=verbose
+                    cd frontend && npm ci && npm test -- --reporter=verbose
                 '''
             }
         }
